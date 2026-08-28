@@ -1,6 +1,7 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { readSerialFromPhoto } from '../lib/ocr'
 import { ITEM_TYPES, ITEM_STATUSES, type Item } from '../lib/types'
 import RequireAdmin from '../components/RequireAdmin'
 
@@ -19,6 +20,10 @@ export default function ItemForm() {
   const [loading, setLoading] = useState(isEditing)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [knownBrands, setKnownBrands] = useState<string[]>([])
+  const [knownModels, setKnownModels] = useState<string[]>([])
+  const [scanning, setScanning] = useState(false)
+  const [scanError, setScanError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!id) return
@@ -34,8 +39,54 @@ export default function ItemForm() {
       })
   }, [id])
 
+  // Suggestions "marque" : toutes les marques déjà utilisées, tous types confondus.
+  useEffect(() => {
+    supabase
+      .from('items')
+      .select('brand')
+      .not('brand', 'is', null)
+      .then(({ data }) => {
+        const unique = [...new Set((data ?? []).map((r) => r.brand as string))].sort()
+        setKnownBrands(unique)
+      })
+  }, [])
+
+  // Suggestions "modèle" : les modèles déjà utilisés pour le type (et la marque
+  // si renseignée) sélectionnés — plus pertinent qu'une liste globale.
+  useEffect(() => {
+    let query = supabase.from('items').select('model').not('model', 'is', null)
+    if (form.type) query = query.eq('type', form.type)
+    if (form.brand) query = query.eq('brand', form.brand)
+    query.then(({ data }) => {
+      const unique = [...new Set((data ?? []).map((r) => r.model as string))].sort()
+      setKnownModels(unique)
+    })
+  }, [form.type, form.brand])
+
   function update<K extends keyof Item>(key: K, value: Item[K]) {
     setForm((f) => ({ ...f, [key]: value }))
+  }
+
+  async function handleScanSerial(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = '' // permet de reprendre une photo du même nom ensuite
+    if (!file) return
+
+    setScanning(true)
+    setScanError(null)
+    try {
+      const text = await readSerialFromPhoto(file)
+      if (!text) {
+        setScanError("Aucun numéro n'a pu être lu sur cette photo — réessayez ou saisissez-le à la main.")
+      } else {
+        update('manufacturer_serial', text)
+        setScanError(`Lu : "${text}" — vérifiez avant d'enregistrer, la lecture sur métal gravé n'est pas garantie à 100 %.`)
+      }
+    } catch (err) {
+      setScanError(err instanceof Error ? err.message : 'Erreur de lecture.')
+    } finally {
+      setScanning(false)
+    }
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -122,18 +173,30 @@ export default function ItemForm() {
 
             <Field label="Marque">
               <input
+                list="known-brands"
                 value={form.brand ?? ''}
                 onChange={(e) => update('brand', e.target.value)}
                 className="input"
               />
+              <datalist id="known-brands">
+                {knownBrands.map((b) => (
+                  <option key={b} value={b} />
+                ))}
+              </datalist>
             </Field>
 
             <Field label="Modèle">
               <input
+                list="known-models"
                 value={form.model ?? ''}
                 onChange={(e) => update('model', e.target.value)}
                 className="input"
               />
+              <datalist id="known-models">
+                {knownModels.map((m) => (
+                  <option key={m} value={m} />
+                ))}
+              </datalist>
             </Field>
 
             <Field label="Longueur textile (m)">
@@ -147,11 +210,25 @@ export default function ItemForm() {
             </Field>
 
             <Field label="N° fabricant">
-              <input
-                value={form.manufacturer_serial ?? ''}
-                onChange={(e) => update('manufacturer_serial', e.target.value)}
-                className="input"
-              />
+              <div className="flex gap-2">
+                <input
+                  value={form.manufacturer_serial ?? ''}
+                  onChange={(e) => update('manufacturer_serial', e.target.value)}
+                  className="input"
+                />
+                <label className="shrink-0 rounded-md border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100 cursor-pointer">
+                  {scanning ? '…' : '📷 Scanner'}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={handleScanSerial}
+                    disabled={scanning}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+              {scanError && <p className="mt-1 text-xs text-amber-700">{scanError}</p>}
             </Field>
 
             <Field label="Date de fabrication">

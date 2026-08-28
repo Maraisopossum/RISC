@@ -32,6 +32,9 @@ export default function ItemsList() {
   const [statusFilter, setStatusFilter] = useState('')
   const [sortColumn, setSortColumn] = useState<SortColumn>('id')
   const [sortAsc, setSortAsc] = useState(false)
+  const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [bulkStatus, setBulkStatus] = useState<string>(ITEM_STATUSES[0].value)
+  const [bulkSaving, setBulkSaving] = useState(false)
 
   function applyFilters<T>(query: T): T {
     // biome-ignore lint: chaînage générique sur le query builder Supabase
@@ -77,6 +80,52 @@ export default function ItemsList() {
     setPage(0)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, typeFilter, statusFilter, sortColumn, sortAsc])
+
+  // La sélection ne doit pas survivre à un changement de page/filtre : les
+  // lignes affichées changent, une sélection "invisible" prêterait à confusion.
+  useEffect(() => {
+    setSelected(new Set())
+  }, [search, typeFilter, statusFilter, page, sortColumn, sortAsc])
+
+  function toggleSelected(id: number) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleSelectAllOnPage() {
+    setSelected((prev) =>
+      prev.size === items.length ? new Set() : new Set(items.map((i) => i.id)),
+    )
+  }
+
+  async function handleBulkStatusChange() {
+    if (selected.size === 0) return
+    setBulkSaving(true)
+    setError(null)
+    const { error } = await supabase
+      .from('items')
+      .update({ status: bulkStatus })
+      .in('id', [...selected])
+    setBulkSaving(false)
+    if (error) {
+      setError(error.message)
+      return
+    }
+    setSelected(new Set())
+    setLoading(true)
+    applyFilters(supabase.from('items_with_alerts').select('*', { count: 'exact' }))
+      .order(sortColumn, { ascending: sortAsc, nullsFirst: sortAsc })
+      .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
+      .then(({ data, count }: { data: ItemWithAlerts[] | null; count: number | null }) => {
+        setItems(data ?? [])
+        setTotal(count ?? 0)
+        setLoading(false)
+      })
+  }
 
   function handleSort(col: SortColumn) {
     if (col === sortColumn) {
@@ -175,10 +224,51 @@ export default function ItemsList() {
 
       {error && <p className="text-red-600 text-sm">{error}</p>}
 
+      {isAdmin && selected.size > 0 && (
+        <div className="flex items-center gap-3 rounded-lg border border-slate-300 bg-slate-100 px-4 py-2 text-sm">
+          <span className="font-medium text-slate-700">{selected.size} sélectionné(s)</span>
+          <span className="text-slate-400">·</span>
+          <span>Passer au statut</span>
+          <select
+            value={bulkStatus}
+            onChange={(e) => setBulkStatus(e.target.value)}
+            className="rounded-md border border-slate-300 px-2 py-1"
+          >
+            {ITEM_STATUSES.map((s) => (
+              <option key={s.value} value={s.value}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={handleBulkStatusChange}
+            disabled={bulkSaving}
+            className="rounded-md bg-slate-900 text-white px-3 py-1.5 font-medium hover:bg-slate-800 disabled:opacity-50"
+          >
+            {bulkSaving ? 'Application…' : 'Appliquer'}
+          </button>
+          <button
+            onClick={() => setSelected(new Set())}
+            className="text-slate-500 hover:underline ml-auto"
+          >
+            Annuler la sélection
+          </button>
+        </div>
+      )}
+
       <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
         <table className="min-w-full text-sm">
           <thead className="bg-slate-50 text-left text-slate-500">
             <tr>
+              {isAdmin && (
+                <th className="px-4 py-2 w-8">
+                  <input
+                    type="checkbox"
+                    checked={items.length > 0 && selected.size === items.length}
+                    onChange={toggleSelectAllOnPage}
+                  />
+                </th>
+              )}
               {COLUMNS.map((col) => (
                 <th key={col.key} className="px-4 py-2">
                   <button
@@ -196,19 +286,28 @@ export default function ItemsList() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={COLUMNS.length + 1} className="px-4 py-6 text-center text-slate-400">
+                <td colSpan={COLUMNS.length + 2} className="px-4 py-6 text-center text-slate-400">
                   Chargement…
                 </td>
               </tr>
             ) : items.length === 0 ? (
               <tr>
-                <td colSpan={COLUMNS.length + 1} className="px-4 py-6 text-center text-slate-400">
+                <td colSpan={COLUMNS.length + 2} className="px-4 py-6 text-center text-slate-400">
                   Aucun résultat.
                 </td>
               </tr>
             ) : (
               items.map((item) => (
                 <tr key={item.id} className="border-t border-slate-100 hover:bg-slate-50">
+                  {isAdmin && (
+                    <td className="px-4 py-2">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(item.id)}
+                        onChange={() => toggleSelected(item.id)}
+                      />
+                    </td>
+                  )}
                   <td className="px-4 py-2">
                     <Link to={`/materiel/${item.id}`} className="font-medium text-slate-900 hover:underline">
                       #{item.id}
