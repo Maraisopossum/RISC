@@ -14,13 +14,17 @@ create table if not exists profiles (
 
 -- Crée automatiquement un profil (rôle "lecture" par défaut) à la création d'un compte.
 -- Pour promouvoir un compte en admin : update profiles set role = 'admin' where email = '...';
+-- "set search_path" est nécessaire : dans le contexte du trigger sur
+-- auth.users, le chemin de résolution par défaut ne contient pas forcément
+-- "public", ce qui ferait échouer silencieusement l'insertion (Supabase
+-- masque alors l'erreur réelle derrière "Database error creating new user").
 create or replace function handle_new_user()
 returns trigger as $$
 begin
-  insert into profiles (id, email) values (new.id, new.email);
+  insert into public.profiles (id, email) values (new.id, new.email);
   return new;
 end;
-$$ language plpgsql security definer;
+$$ language plpgsql security definer set search_path = public;
 
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
@@ -30,9 +34,9 @@ create trigger on_auth_user_created
 create or replace function is_admin()
 returns boolean as $$
   select exists (
-    select 1 from profiles where id = auth.uid() and role = 'admin'
+    select 1 from public.profiles where id = auth.uid() and role = 'admin'
   );
-$$ language sql security definer stable;
+$$ language sql security definer stable set search_path = public;
 
 alter table profiles enable row level security;
 
@@ -94,9 +98,9 @@ create trigger items_set_updated_at
 create or replace function set_items_id_seq(new_value bigint)
 returns void as $$
 begin
-  perform setval('items_id_seq', new_value);
+  perform setval('public.items_id_seq', new_value);
 end;
-$$ language plpgsql security definer;
+$$ language plpgsql security definer set search_path = public;
 
 -- Réservée au script d'import (exécuté avec la clé service_role, qui contourne
 -- de toute façon ces droits) : personne d'autre ne doit pouvoir l'appeler.
