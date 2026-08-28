@@ -2,12 +2,26 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { downloadCsv } from '../lib/csv'
-import { ITEM_TYPES, ITEM_STATUSES, type Item } from '../lib/types'
+import { useAuth } from '../auth/AuthContext'
+import { ITEM_TYPES, ITEM_STATUSES, type ItemWithAlerts } from '../lib/types'
 
 const PAGE_SIZE = 50
 
+type SortColumn = 'id' | 'type' | 'brand' | 'model' | 'manufacturer_serial' | 'status' | 'last_inspection_on'
+
+const COLUMNS: { key: SortColumn; label: string }[] = [
+  { key: 'id', label: 'ID' },
+  { key: 'type', label: 'Type' },
+  { key: 'brand', label: 'Marque' },
+  { key: 'model', label: 'Modèle' },
+  { key: 'manufacturer_serial', label: 'N° fabricant' },
+  { key: 'status', label: 'Statut' },
+  { key: 'last_inspection_on', label: 'Dernier contrôle' },
+]
+
 export default function ItemsList() {
-  const [items, setItems] = useState<Item[]>([])
+  const { isAdmin } = useAuth()
+  const [items, setItems] = useState<ItemWithAlerts[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -16,16 +30,17 @@ export default function ItemsList() {
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [sortColumn, setSortColumn] = useState<SortColumn>('id')
+  const [sortAsc, setSortAsc] = useState(false)
 
-  useEffect(() => {
-    setLoading(true)
-    let query = supabase.from('items').select('*', { count: 'exact' })
-
-    if (typeFilter) query = query.eq('type', typeFilter)
-    if (statusFilter) query = query.eq('status', statusFilter)
+  function applyFilters<T>(query: T): T {
+    // biome-ignore lint: chaînage générique sur le query builder Supabase
+    let q: any = query
+    if (typeFilter) q = q.eq('type', typeFilter)
+    if (statusFilter) q = q.eq('status', statusFilter)
     if (search.trim()) {
       const term = search.trim()
-      query = query.or(
+      q = q.or(
         [
           `brand.ilike.%${term}%`,
           `model.ilike.%${term}%`,
@@ -37,58 +52,56 @@ export default function ItemsList() {
           .join(','),
       )
     }
+    return q
+  }
 
+  useEffect(() => {
+    setLoading(true)
     const from = page * PAGE_SIZE
     const to = from + PAGE_SIZE - 1
 
-    query
-      .order('id', { ascending: false })
+    applyFilters(supabase.from('items_with_alerts').select('*', { count: 'exact' }))
+      .order(sortColumn, { ascending: sortAsc, nullsFirst: sortAsc })
       .range(from, to)
-      .then(({ data, error, count }) => {
+      .then(({ data, error, count }: { data: ItemWithAlerts[] | null; error: { message: string } | null; count: number | null }) => {
         if (error) setError(error.message)
-        setItems((data as Item[]) ?? [])
+        setItems(data ?? [])
         setTotal(count ?? 0)
         setLoading(false)
       })
-  }, [search, typeFilter, statusFilter, page])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, typeFilter, statusFilter, page, sortColumn, sortAsc])
 
-  // Revenir à la première page quand un filtre change
+  // Revenir à la première page quand un filtre ou un tri change
   useEffect(() => {
     setPage(0)
-  }, [search, typeFilter, statusFilter])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, typeFilter, statusFilter, sortColumn, sortAsc])
+
+  function handleSort(col: SortColumn) {
+    if (col === sortColumn) {
+      setSortAsc((a) => !a)
+    } else {
+      setSortColumn(col)
+      setSortAsc(col === 'id' ? false : true)
+    }
+  }
 
   async function handleExport() {
     // Exporte tout le résultat filtré (pas seulement la page affichée), par lots de 1000.
     setError(null)
-    let query = supabase.from('items').select('*')
-    if (typeFilter) query = query.eq('type', typeFilter)
-    if (statusFilter) query = query.eq('status', statusFilter)
-    if (search.trim()) {
-      const term = search.trim()
-      query = query.or(
-        [
-          `brand.ilike.%${term}%`,
-          `model.ilike.%${term}%`,
-          `manufacturer_serial.ilike.%${term}%`,
-          `specifics.ilike.%${term}%`,
-          /^\d+$/.test(term) ? `id.eq.${term}` : null,
-        ]
-          .filter(Boolean)
-          .join(','),
-      )
-    }
 
-    const all: Item[] = []
+    const all: ItemWithAlerts[] = []
     const batchSize = 1000
     for (let from = 0; ; from += batchSize) {
-      const { data, error } = await query
-        .order('id', { ascending: false })
+      const { data, error } = await applyFilters(supabase.from('items_with_alerts').select('*'))
+        .order(sortColumn, { ascending: sortAsc, nullsFirst: sortAsc })
         .range(from, from + batchSize - 1)
       if (error) {
         setError(error.message)
         return
       }
-      all.push(...((data as Item[]) ?? []))
+      all.push(...((data as ItemWithAlerts[]) ?? []))
       if (!data || data.length < batchSize) break
     }
 
@@ -106,6 +119,7 @@ export default function ItemsList() {
           : item.manufacture_date,
         'Date sortie de service': item.decommission_date,
         Statut: item.status,
+        'Dernier contrôle': item.last_inspection_on,
         Remarques: item.remarks,
       })),
     )
@@ -165,24 +179,30 @@ export default function ItemsList() {
         <table className="min-w-full text-sm">
           <thead className="bg-slate-50 text-left text-slate-500">
             <tr>
-              <th className="px-4 py-2">ID</th>
-              <th className="px-4 py-2">Type</th>
-              <th className="px-4 py-2">Marque</th>
-              <th className="px-4 py-2">Modèle</th>
-              <th className="px-4 py-2">N° fabricant</th>
-              <th className="px-4 py-2">Statut</th>
+              {COLUMNS.map((col) => (
+                <th key={col.key} className="px-4 py-2">
+                  <button
+                    onClick={() => handleSort(col.key)}
+                    className="flex items-center gap-1 font-medium hover:text-slate-900"
+                  >
+                    {col.label}
+                    {sortColumn === col.key && <span>{sortAsc ? '▲' : '▼'}</span>}
+                  </button>
+                </th>
+              ))}
+              {isAdmin && <th className="px-4 py-2" />}
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={6} className="px-4 py-6 text-center text-slate-400">
+                <td colSpan={COLUMNS.length + 1} className="px-4 py-6 text-center text-slate-400">
                   Chargement…
                 </td>
               </tr>
             ) : items.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-6 text-center text-slate-400">
+                <td colSpan={COLUMNS.length + 1} className="px-4 py-6 text-center text-slate-400">
                   Aucun résultat.
                 </td>
               </tr>
@@ -201,6 +221,17 @@ export default function ItemsList() {
                   <td className="px-4 py-2">
                     {ITEM_STATUSES.find((s) => s.value === item.status)?.label}
                   </td>
+                  <td className="px-4 py-2">{item.last_inspection_on ?? 'Jamais contrôlé'}</td>
+                  {isAdmin && (
+                    <td className="px-4 py-2">
+                      <Link
+                        to={`/materiel/${item.id}/modifier`}
+                        className="rounded-md border border-slate-300 px-2 py-1 text-xs hover:bg-slate-100"
+                      >
+                        Modifier
+                      </Link>
+                    </td>
+                  )}
                 </tr>
               ))
             )}
