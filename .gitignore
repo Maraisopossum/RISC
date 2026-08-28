@@ -1,0 +1,12 @@
+node_modules
+dist
+dist-ssr
+*.local
+.env
+.env.local
+.env.*.local
+.DS_Store
+*.log
+
+# Données source internes (contiennent des infos personnelles) : jamais publiées sur le repo public
+data-source/
