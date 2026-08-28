@@ -1,11 +1,17 @@
 @import "tailwindcss";
 
+/* On ne fournit pas de thème sombre pour l'instant : forcer "light" évite
+   qu'Android Chrome (mode sombre système + "forcer le thème sombre des sites")
+   ne réinvente ses propres couleurs sur des éléments non prévus pour, ce qui
+   peut rendre du texte invisible (texte blanc sur fond blanc, etc.). */
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
 }
 
 body {
   margin: 0;
+  background: #fff;
+  color: #0f172a;
   font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
 }
 
