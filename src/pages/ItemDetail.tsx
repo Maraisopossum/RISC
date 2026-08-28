@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../auth/AuthContext'
 import { ITEM_STATUSES, type Item, type Inspection } from '../lib/types'
+import { cacheItem, getCachedItem } from '../lib/offlineCache'
 
 export default function ItemDetail() {
   const { id } = useParams()
@@ -13,6 +14,7 @@ export default function ItemDetail() {
   const [inspections, setInspections] = useState<Inspection[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [offlineSince, setOfflineSince] = useState<string | null>(null)
 
   const [newDate, setNewDate] = useState('')
   const [newResult, setNewResult] = useState('OK')
@@ -20,6 +22,8 @@ export default function ItemDetail() {
   const [savingInspection, setSavingInspection] = useState(false)
 
   async function loadAll() {
+    if (!id) return
+
     const [itemRes, inspRes] = await Promise.all([
       supabase.from('items').select('*').eq('id', id).single(),
       supabase
@@ -28,10 +32,28 @@ export default function ItemDetail() {
         .eq('item_id', id)
         .order('inspected_on', { ascending: false }),
     ])
-    if (itemRes.error) setError(itemRes.error.message)
-    setItem((itemRes.data as Item) ?? null)
+
+    if (itemRes.error) {
+      // Pas de réseau (ou item introuvable) : on retombe sur la dernière
+      // version déjà consultée en ligne, si elle existe.
+      const cached = getCachedItem(id)
+      if (cached) {
+        setItem(cached.item)
+        setInspections(cached.inspections)
+        setOfflineSince(cached.cachedAt)
+        setLoading(false)
+        return
+      }
+      setError(itemRes.error.message)
+      setLoading(false)
+      return
+    }
+
+    setOfflineSince(null)
+    setItem(itemRes.data as Item)
     setInspections((inspRes.data as Inspection[]) ?? [])
     setLoading(false)
+    cacheItem(itemRes.data as Item, (inspRes.data as Inspection[]) ?? [])
   }
 
   useEffect(() => {
@@ -76,6 +98,13 @@ export default function ItemDetail() {
 
   return (
     <div className="space-y-8 max-w-3xl">
+      {offlineSince && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          Hors-ligne — dernière version connue de cette fiche, consultée le{' '}
+          {new Date(offlineSince).toLocaleString('fr-BE')}. Les modifications ne sont pas
+          possibles sans réseau.
+        </div>
+      )}
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-slate-900">
@@ -85,7 +114,7 @@ export default function ItemDetail() {
             {[item.brand, item.model].filter(Boolean).join(' · ') || 'Sans marque/modèle'}
           </p>
         </div>
-        {isAdmin && (
+        {isAdmin && !offlineSince && (
           <div className="flex gap-2">
             <Link
               to={`/materiel/${item.id}/modifier`}
@@ -144,7 +173,7 @@ export default function ItemDetail() {
           </ul>
         )}
 
-        {isAdmin && (
+        {isAdmin && !offlineSince && (
           <form onSubmit={handleAddInspection} className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
             <p className="font-medium text-slate-900">Ajouter un contrôle</p>
             <div className="grid grid-cols-2 gap-3">
