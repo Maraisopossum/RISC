@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode'
 
 interface CodeScannerProps {
@@ -40,9 +40,11 @@ function describeCameraError(err: unknown): string {
 // par le fabricant, ou une étiquette RISC générée depuis la fiche item.
 export default function CodeScanner({ onResult, onCancel }: CodeScannerProps) {
   const scannerRef = useRef<Html5Qrcode | null>(null)
+  const stoppedRef = useRef(false)
   const [error, setError] = useState<string | null>(null)
   const [starting, setStarting] = useState(true)
   const [slow, setSlow] = useState(false)
+  const [photoScanning, setPhotoScanning] = useState(false)
 
   useEffect(() => {
     const scanner = new Html5Qrcode(ELEMENT_ID, {
@@ -57,12 +59,11 @@ export default function CodeScanner({ onResult, onCancel }: CodeScannerProps) {
       verbose: false,
     })
     scannerRef.current = scanner
+    stoppedRef.current = false
 
-    let stopped = false
-
-    // Après quelques secondes sans détection, on suggère la bascule vers
-    // l'OCR — un DataMatrix petit et dense (gravé sur métal) est parfois
-    // hors de portée d'une caméra qui peine à faire la mise au point de près.
+    // Après quelques secondes sans détection, on suggère la photo ou l'OCR —
+    // un DataMatrix petit et dense (gravé sur métal) est parfois hors de
+    // portée d'un flux vidéo continu (résolution/mise au point limitées).
     const slowTimeout = setTimeout(() => setSlow(true), 6000)
 
     scanner
@@ -73,9 +74,6 @@ export default function CodeScanner({ onResult, onCancel }: CodeScannerProps) {
         {
           fps: 10,
           qrbox: { width: 280, height: 280 },
-          // Demande la meilleure résolution possible à la caméra : un
-          // DataMatrix est dense, il a besoin de beaucoup de pixels pour
-          // être décodé correctement à cette taille.
           videoConstraints: {
             facingMode: 'environment',
             width: { ideal: 1920 },
@@ -83,8 +81,8 @@ export default function CodeScanner({ onResult, onCancel }: CodeScannerProps) {
           },
         },
         (decodedText) => {
-          if (stopped) return
-          stopped = true
+          if (stoppedRef.current) return
+          stoppedRef.current = true
           clearTimeout(slowTimeout)
           // On attend que la caméra soit vraiment arrêtée avant de prévenir le
           // parent : celui-ci navigue généralement aussitôt (démonte ce
@@ -109,13 +107,40 @@ export default function CodeScanner({ onResult, onCancel }: CodeScannerProps) {
 
     return () => {
       clearTimeout(slowTimeout)
-      if (stopped) return // déjà arrêté par le callback de succès ci-dessus
-      stopped = true
+      if (stoppedRef.current) return // déjà arrêté ailleurs (succès ou photo)
+      stoppedRef.current = true
       if (scanner.isScanning) {
         scanner.stop().catch(() => {})
       }
     }
   }, [onResult])
+
+  async function handlePhotoScan(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file || !scannerRef.current) return
+
+    const scanner = scannerRef.current
+    setPhotoScanning(true)
+    setError(null)
+
+    try {
+      // Une vraie photo capture bien plus de détail que le flux vidéo continu
+      // (souvent limité en résolution/mise au point) : meilleure chance de
+      // décoder un DataMatrix dense.
+      if (scanner.isScanning) {
+        stoppedRef.current = true
+        await scanner.stop().catch(() => {})
+      }
+      const result = await scanner.scanFileV2(file, false)
+      onResult(result.decodedText)
+    } catch {
+      setError(
+        "Aucun code détecté sur cette photo. Reprenez-la bien cadrée et nette sur le code, ou utilisez \"Numéro gravé (photo)\" ci-dessus.",
+      )
+      setPhotoScanning(false)
+    }
+  }
 
   return (
     <div className="space-y-3">
@@ -123,15 +148,27 @@ export default function CodeScanner({ onResult, onCancel }: CodeScannerProps) {
       {starting && <p className="text-center text-sm text-slate-500">Démarrage de la caméra…</p>}
       {!starting && !error && slow && (
         <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-          Toujours rien détecté ? Rapprochez-vous, assurez un bon éclairage et tenez le téléphone
-          stable — les DataMatrix denses sur métal sont parfois difficiles à lire pour la caméra.
-          Si ça ne passe pas, basculez vers "Numéro gravé (photo)" ci-dessus.
+          Toujours rien détecté ? Le flux caméra en direct a une résolution limitée — essayez
+          "📷 Prendre une photo" ci-dessous, souvent bien plus efficace sur un code dense.
         </p>
       )}
       {error && (
         <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
           {error}
         </p>
+      )}
+      {!starting && (
+        <label className="flex items-center justify-center gap-2 rounded-md border border-slate-300 px-4 py-2 text-sm font-medium hover:bg-slate-100 cursor-pointer">
+          {photoScanning ? 'Analyse de la photo…' : '📷 Prendre une photo (meilleure résolution)'}
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={handlePhotoScan}
+            disabled={photoScanning}
+            className="hidden"
+          />
+        </label>
       )}
       <button
         onClick={onCancel}
