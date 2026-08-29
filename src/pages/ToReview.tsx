@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { fetchAllRows } from '../lib/fetchAll'
 import { ITEM_STATUSES, type Item } from '../lib/types'
 import RequireAdmin from '../components/RequireAdmin'
 
@@ -15,10 +16,15 @@ export default function ToReview() {
 
   useEffect(() => {
     async function load() {
-      const [unknownDateRes, declasseNoDateRes, allWithSerialRes] = await Promise.all([
+      const [unknownDateRes, declasseNoDateRes, allWithSerial] = await Promise.all([
         supabase.from('items').select('*').eq('manufacture_date_unknown', true),
         supabase.from('items').select('*').eq('status', 'declasse').is('decommission_date', null),
-        supabase.from('items').select('*').not('manufacturer_serial', 'is', null),
+        fetchAllRows<Item>(() =>
+          supabase.from('items').select('*').not('manufacturer_serial', 'is', null),
+        ).catch((err) => {
+          setError(err instanceof Error ? err.message : 'Erreur inconnue.')
+          return [] as Item[]
+        }),
       ])
 
       if (unknownDateRes.error) setError(unknownDateRes.error.message)
@@ -44,7 +50,7 @@ export default function ToReview() {
       // N° fabricant identique utilisé par plusieurs items actifs : probable
       // erreur de saisie ou de scan (numéro attribué deux fois par erreur).
       const bySerial = new Map<string, Item[]>()
-      for (const item of (allWithSerialRes.data as Item[]) ?? []) {
+      for (const item of allWithSerial) {
         if (item.status === 'disparu') continue
         const key = item.manufacturer_serial!.trim().toUpperCase()
         if (!bySerial.has(key)) bySerial.set(key, [])

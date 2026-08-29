@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { readSerialFromPhoto, type OcrSource } from '../lib/ocr'
 import { similarity } from '../lib/fuzzy'
 import { parseItemIdFromScan } from '../lib/qr'
+import { fetchAllRows } from '../lib/fetchAll'
 import { ITEM_STATUSES, type Item } from '../lib/types'
 import RequireAdmin from '../components/RequireAdmin'
 
@@ -31,29 +32,40 @@ export default function ScanLookup() {
   const [manualInput, setManualInput] = useState('')
 
   async function lookupSerial(text: string, source: Source) {
-    const { data, error: dbError } = await supabase
+    // Recherche exacte directement côté serveur : fiable quel que soit le
+    // nombre d'items (l'API plafonne les réponses à 1000 lignes par défaut,
+    // et on a 4000+ N° fabricant renseignés — un simple "select *" côté
+    // client ratait des correspondances qui existaient pourtant bien).
+    const { data: exactMatches, error: exactErr } = await supabase
       .from('items')
       .select('*')
-      .not('manufacturer_serial', 'is', null)
-    if (dbError) {
-      setError(dbError.message)
+      .ilike('manufacturer_serial', text.trim())
+    if (exactErr) {
+      setError(exactErr.message)
+      return
+    }
+    if (exactMatches && exactMatches.length > 0) {
+      // Correspondance exacte : pas besoin de choisir, on ouvre directement la fiche.
+      navigate(`/materiel/${(exactMatches[0] as Item).id}`)
       return
     }
 
-    const normalize = (s: string) => s.trim().toUpperCase()
-    const exact = (data as Item[]).find(
-      (item) => normalize(item.manufacturer_serial!) === normalize(text),
-    )
-    if (exact) {
-      // Correspondance exacte : pas besoin de choisir, on ouvre directement la fiche.
-      navigate(`/materiel/${exact.id}`)
+    // Sinon, recherche approchée sur l'ensemble des items (par lots de 1000
+    // pour la même raison — un seul select() serait tronqué).
+    let all: Item[]
+    try {
+      all = await fetchAllRows<Item>(() =>
+        supabase.from('items').select('*').not('manufacturer_serial', 'is', null),
+      )
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erreur inconnue.')
       return
     }
 
     setScannedText(text)
     setScanSource(source)
 
-    const scored = (data as Item[])
+    const scored = all
       .map((item) => ({ ...item, score: similarity(text, item.manufacturer_serial!) }))
       .filter((item) => item.score >= MIN_SCORE)
       .sort((a, b) => b.score - a.score)
