@@ -8,6 +8,33 @@ interface CodeScannerProps {
 
 const ELEMENT_ID = 'code-scanner-viewport'
 
+// html5-qrcode rejette parfois avec une DOMException standard, parfois avec
+// une simple chaîne de texte — on regarde le "name" (fiable, normalisé par
+// les navigateurs) en priorité, et on garde le message brut en repli pour
+// ne pas retomber sur un message générique qui masque la vraie cause.
+function describeCameraError(err: unknown): string {
+  const name = err instanceof DOMException ? err.name : null
+  const rawMessage = err instanceof Error ? err.message : String(err)
+
+  switch (name) {
+    case 'NotAllowedError':
+    case 'PermissionDeniedError':
+      return "Accès à la caméra refusé — autorisez-le dans les paramètres du navigateur (ou du site), ou utilisez la saisie manuelle."
+    case 'NotFoundError':
+    case 'DevicesNotFoundError':
+      return "Aucune caméra détectée sur cet appareil."
+    case 'NotReadableError':
+    case 'TrackStartError':
+      return "La caméra est déjà utilisée par une autre application ou un autre onglet — fermez-la et réessayez."
+    case 'OverconstrainedError':
+      return "La caméra de cet appareil ne supporte pas la configuration demandée."
+    case 'SecurityError':
+      return "Accès à la caméra bloqué (connexion non sécurisée)."
+    default:
+      return `Impossible de démarrer la caméra sur cet appareil${rawMessage ? ` (${rawMessage})` : ''}.`
+  }
+}
+
 // Caméra en direct pour lire un QR code ou un code-barres (Code128, EAN,
 // DataMatrix...) — la majorité du matériel a déjà un code exploitable posé
 // par le fabricant, ou une étiquette RISC générée depuis la fiche item.
@@ -71,11 +98,7 @@ export default function CodeScanner({ onResult, onCancel }: CodeScannerProps) {
       .then(() => setStarting(false))
       .catch((err) => {
         setStarting(false)
-        setError(
-          err instanceof Error && err.message.includes('Permission')
-            ? "Accès à la caméra refusé — autorisez-le dans les paramètres du navigateur, ou utilisez la saisie manuelle."
-            : "Impossible de démarrer la caméra sur cet appareil.",
-        )
+        setError(describeCameraError(err))
       })
 
     return () => {
