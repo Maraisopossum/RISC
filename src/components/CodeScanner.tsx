@@ -1,5 +1,22 @@
-import { useRef, useState, type ChangeEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode'
+
+// Diagnostic : le détecteur natif du navigateur (celui que peut utiliser
+// html5-qrcode en priorité, le même moteur que Lens/Bixby côté OS) n'est
+// pas disponible partout, et même quand il l'est, ne supporte pas forcément
+// le format DataMatrix. Utile pour savoir sans deviner ce qui se passe sur
+// un appareil donné.
+async function detectNativeBarcodeSupport(): Promise<string> {
+  if (!('BarcodeDetector' in window)) return "Détecteur natif : non disponible sur ce navigateur (décodeur JS uniquement)."
+  try {
+    // biome-ignore lint/suspicious/noExplicitAny: API navigateur récente, pas encore dans tous les typages TS
+    const formats: string[] = await (window as any).BarcodeDetector.getSupportedFormats()
+    const hasDataMatrix = formats.includes('data_matrix')
+    return `Détecteur natif : disponible (${formats.join(', ')})${hasDataMatrix ? '' : ' — DataMatrix non supporté par ce détecteur, retombe sur le décodeur JS.'}`
+  } catch {
+    return 'Détecteur natif : présent mais indisponible.'
+  }
+}
 
 interface CodeScannerProps {
   onResult: (text: string) => void
@@ -16,6 +33,11 @@ const ELEMENT_ID = 'code-scanner-viewport'
 export default function CodeScanner({ onResult, onFallback, onCancel }: CodeScannerProps) {
   const scannerRef = useRef<Html5Qrcode | null>(null)
   const [scanning, setScanning] = useState(false)
+  const [diagnostic, setDiagnostic] = useState<string | null>(null)
+
+  useEffect(() => {
+    detectNativeBarcodeSupport().then(setDiagnostic)
+  }, [])
 
   function getScanner() {
     if (!scannerRef.current) {
@@ -77,6 +99,8 @@ export default function CodeScanner({ onResult, onFallback, onCancel }: CodeScan
       >
         Annuler
       </button>
+
+      {diagnostic && <p className="text-center text-xs text-slate-400">{diagnostic}</p>}
     </div>
   )
 }
