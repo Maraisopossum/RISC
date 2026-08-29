@@ -81,12 +81,13 @@ export default function ItemForm() {
     setScanning(true)
     setScanError(null)
     try {
-      const text = await readSerialFromPhoto(file)
+      const { text, source } = await readSerialFromPhoto(file)
       if (!text) {
         setScanError("Aucun numéro n'a pu être lu sur cette photo — réessayez ou saisissez-le à la main.")
       } else {
         update('manufacturer_serial', text)
-        setScanError(`Lu : "${text}" — vérifiez avant d'enregistrer, la lecture sur métal gravé n'est pas garantie à 100 %.`)
+        const via = source === 'tesseract' ? 'lecture locale' : 'Groq (lecture locale peu fiable)'
+        setScanError(`Lu (${via}) : "${text}" — vérifiez avant d'enregistrer, la lecture sur métal gravé n'est pas garantie à 100 %.`)
       }
     } catch (err) {
       setScanError(err instanceof Error ? err.message : 'Erreur de lecture.')

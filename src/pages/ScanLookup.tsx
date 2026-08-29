@@ -16,6 +16,7 @@ export default function ScanLookup() {
   const navigate = useNavigate()
   const [scanning, setScanning] = useState(false)
   const [scannedText, setScannedText] = useState<string | null>(null)
+  const [scanSource, setScanSource] = useState<'tesseract' | 'groq' | null>(null)
   const [matches, setMatches] = useState<Match[]>([])
   const [error, setError] = useState<string | null>(null)
 
@@ -30,12 +31,13 @@ export default function ScanLookup() {
     setScannedText(null)
 
     try {
-      const text = await readSerialFromPhoto(file)
+      const { text, source } = await readSerialFromPhoto(file)
       if (!text) {
         setError("Aucun numéro n'a pu être lu sur cette photo. Réessayez avec une photo plus nette et cadrée sur le numéro.")
         return
       }
       setScannedText(text)
+      setScanSource(source)
 
       const { data, error: dbError } = await supabase
         .from('items')
@@ -93,7 +95,8 @@ export default function ScanLookup() {
         {scannedText && (
           <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-4">
             <p className="text-sm text-slate-500">
-              Numéro lu : <span className="font-mono text-base text-slate-900">{scannedText}</span>
+              Numéro lu ({scanSource === 'tesseract' ? 'lecture locale' : 'Groq'}) :{' '}
+              <span className="font-mono text-base text-slate-900">{scannedText}</span>
               {' '}— la lecture sur métal gravé n'est pas garantie à 100 %, vérifiez la correspondance
               avant de valider.
             </p>

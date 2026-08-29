@@ -10,3 +10,6 @@ dist-ssr
 
 # Données source internes (contiennent des infos personnelles) : jamais publiées sur le repo public
 data-source/
+
+# Cache local Tesseract.js (téléchargé automatiquement, ne pas commit)
+*.traineddata
