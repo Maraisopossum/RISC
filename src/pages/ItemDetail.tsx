@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../auth/AuthContext'
 import { ITEM_STATUSES, type Item, type Inspection } from '../lib/types'
 import { cacheItem, getCachedItem } from '../lib/offlineCache'
+import QrLabel from '../components/QrLabel'
 
 export default function ItemDetail() {
   const { id } = useParams()
@@ -154,6 +155,8 @@ export default function ItemDetail() {
           </div>
         )}
       </dl>
+
+      {isAdmin && !offlineSince && <QrLabel itemId={item.id} itemType={item.type} />}
 
       <div>
         <h2 className="text-lg font-semibold text-slate-900 mb-3">Historique des contrôles SECT</h2>
