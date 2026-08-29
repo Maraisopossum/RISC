@@ -67,15 +67,21 @@ export default function CodeScanner({ onResult, onCancel }: CodeScannerProps) {
 
     scanner
       .start(
+        // Un seul champ ici : html5-qrcode l'exige. La résolution se
+        // demande via videoConstraints dans la config ci-dessous.
+        { facingMode: 'environment' },
         {
-          facingMode: 'environment',
+          fps: 10,
+          qrbox: { width: 280, height: 280 },
           // Demande la meilleure résolution possible à la caméra : un
           // DataMatrix est dense, il a besoin de beaucoup de pixels pour
           // être décodé correctement à cette taille.
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
+          videoConstraints: {
+            facingMode: 'environment',
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+          },
         },
-        { fps: 10, qrbox: { width: 280, height: 280 } },
         (decodedText) => {
           if (stopped) return
           stopped = true
