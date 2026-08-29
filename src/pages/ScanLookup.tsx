@@ -30,9 +30,6 @@ export default function ScanLookup() {
   const [error, setError] = useState<string | null>(null)
 
   async function lookupSerial(text: string, source: Source) {
-    setScannedText(text)
-    setScanSource(source)
-
     const { data, error: dbError } = await supabase
       .from('items')
       .select('*')
@@ -41,6 +38,19 @@ export default function ScanLookup() {
       setError(dbError.message)
       return
     }
+
+    const normalize = (s: string) => s.trim().toUpperCase()
+    const exact = (data as Item[]).find(
+      (item) => normalize(item.manufacturer_serial!) === normalize(text),
+    )
+    if (exact) {
+      // Correspondance exacte : pas besoin de choisir, on ouvre directement la fiche.
+      navigate(`/materiel/${exact.id}`)
+      return
+    }
+
+    setScannedText(text)
+    setScanSource(source)
 
     const scored = (data as Item[])
       .map((item) => ({ ...item, score: similarity(text, item.manufacturer_serial!) }))
