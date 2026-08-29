@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, type ChangeEvent } from 'react'
+import { lazy, Suspense, useState, type ChangeEvent, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { readSerialFromPhoto, type OcrSource } from '../lib/ocr'
@@ -15,8 +15,8 @@ interface Match extends Item {
   score: number
 }
 
-type Mode = 'code' | 'photo'
-type Source = OcrSource | 'code'
+type Mode = 'code' | 'photo' | 'manual'
+type Source = OcrSource | 'code' | 'manual'
 
 const MIN_SCORE = 0.4 // en dessous, la suggestion n'a plus de sens
 
@@ -28,6 +28,7 @@ export default function ScanLookup() {
   const [scanSource, setScanSource] = useState<Source | null>(null)
   const [matches, setMatches] = useState<Match[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [manualInput, setManualInput] = useState('')
 
   async function lookupSerial(text: string, source: Source) {
     const { data, error: dbError } = await supabase
@@ -101,6 +102,14 @@ export default function ScanLookup() {
     }
   }
 
+  async function handleManualSearch(e: FormEvent) {
+    e.preventDefault()
+    const text = manualInput.trim()
+    if (!text) return
+    resetResult()
+    await lookupSerial(text, 'manual')
+  }
+
   function handleCreateNew() {
     navigate('/materiel/nouveau', { state: { manufacturer_serial: scannedText } })
   }
@@ -109,6 +118,7 @@ export default function ScanLookup() {
     code: 'code-barres / QR',
     tesseract: 'lecture locale',
     groq: 'Groq',
+    manual: 'saisi manuellement',
   }
 
   return (
@@ -117,9 +127,9 @@ export default function ScanLookup() {
         <div>
           <h1 className="text-2xl font-semibold text-slate-900">Scanner un item</h1>
           <p className="text-slate-500">
-            Scannez un QR/code-barres (étiquette RISC ou code fabricant), ou photographiez un
-            numéro gravé sans code lisible, pour retrouver une fiche existante ou en créer une
-            nouvelle.
+            Scannez un QR/code-barres (étiquette RISC ou code fabricant), photographiez un numéro
+            gravé sans code lisible, ou saisissez-le directement si vous le connaissez déjà —
+            pour retrouver une fiche existante ou en créer une nouvelle.
           </p>
         </div>
 
@@ -142,9 +152,35 @@ export default function ScanLookup() {
           >
             Numéro gravé (photo)
           </button>
+          <button
+            onClick={() => {
+              setMode('manual')
+              resetResult()
+            }}
+            className={`rounded px-3 py-1.5 text-sm font-medium ${mode === 'manual' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+          >
+            Saisir le numéro
+          </button>
         </div>
 
-        {mode === 'code' ? (
+        {mode === 'manual' ? (
+          <form onSubmit={handleManualSearch} className="flex gap-2">
+            <input
+              type="text"
+              autoFocus
+              placeholder="N° fabricant (ex: 22F0414A69072)"
+              value={manualInput}
+              onChange={(e) => setManualInput(e.target.value)}
+              className="input font-mono"
+            />
+            <button
+              type="submit"
+              className="shrink-0 rounded-md bg-slate-900 text-white px-4 py-2 font-medium hover:bg-slate-800"
+            >
+              Rechercher
+            </button>
+          </form>
+        ) : mode === 'code' ? (
           <Suspense fallback={<p className="text-sm text-slate-500">Chargement du scanner…</p>}>
             <CodeScanner onResult={handleCodeResult} onCancel={() => setMode('photo')} />
           </Suspense>
@@ -173,7 +209,7 @@ export default function ScanLookup() {
             <p className="text-sm text-slate-500">
               Numéro lu ({sourceLabel[scanSource]}) :{' '}
               <span className="font-mono text-base text-slate-900">{scannedText}</span>
-              {scanSource !== 'code' && (
+              {scanSource !== 'code' && scanSource !== 'manual' && (
                 <>
                   {' '}— la lecture sur métal gravé n'est pas garantie à 100 %, vérifiez la
                   correspondance avant de valider.
