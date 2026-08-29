@@ -3,6 +3,7 @@ import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode'
 
 interface CodeScannerProps {
   onResult: (text: string) => void
+  onFallback: (file: File) => void
   onCancel: () => void
 }
 
@@ -12,10 +13,9 @@ const ELEMENT_ID = 'code-scanner-viewport'
 // flux vidéo continu : le flux en direct s'est révélé bien moins net (résolution
 // et mise au point limitées) qu'une photo pour les codes denses comme les
 // DataMatrix gravés sur métal — testé en conditions réelles.
-export default function CodeScanner({ onResult, onCancel }: CodeScannerProps) {
+export default function CodeScanner({ onResult, onFallback, onCancel }: CodeScannerProps) {
   const scannerRef = useRef<Html5Qrcode | null>(null)
   const [scanning, setScanning] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
   function getScanner() {
     if (!scannerRef.current) {
@@ -40,14 +40,14 @@ export default function CodeScanner({ onResult, onCancel }: CodeScannerProps) {
     if (!file) return
 
     setScanning(true)
-    setError(null)
     try {
       const result = await getScanner().scanFileV2(file, false)
       onResult(result.decodedText)
     } catch {
-      setError(
-        "Aucun code détecté sur cette photo. Reprenez-la bien cadrée et nette sur le code, ou utilisez \"Numéro gravé (photo)\" ci-dessus.",
-      )
+      // Un DataMatrix dense (gravé sur métal) échappe parfois à ce décodeur
+      // même avec une bonne photo — on retente la même image via l'OCR
+      // plutôt que d'exiger une nouvelle photo dans un autre onglet.
+      onFallback(file)
     } finally {
       setScanning(false)
     }
@@ -70,12 +70,6 @@ export default function CodeScanner({ onResult, onCancel }: CodeScannerProps) {
           className="hidden"
         />
       </label>
-
-      {error && (
-        <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-          {error}
-        </p>
-      )}
 
       <button
         onClick={onCancel}

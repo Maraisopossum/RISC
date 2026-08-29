@@ -93,11 +93,7 @@ export default function ScanLookup() {
     await lookupSerial(text, 'code')
   }
 
-  async function handlePhotoScan(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    e.target.value = ''
-    if (!file) return
-
+  async function runOcr(file: File) {
     setScanning(true)
     resetResult()
     try {
@@ -112,6 +108,21 @@ export default function ScanLookup() {
     } finally {
       setScanning(false)
     }
+  }
+
+  async function handlePhotoScan(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    await runOcr(file)
+  }
+
+  // Le décodeur QR/code-barres échoue parfois sur un DataMatrix dense
+  // (gravé sur métal) même avec une bonne photo — on retente alors la même
+  // image via l'OCR plutôt que de laisser l'utilisateur reprendre une photo
+  // à la main dans un autre onglet.
+  async function handleCodeFallback(file: File) {
+    await runOcr(file)
   }
 
   async function handleManualSearch(e: FormEvent) {
@@ -194,7 +205,11 @@ export default function ScanLookup() {
           </form>
         ) : mode === 'code' ? (
           <Suspense fallback={<p className="text-sm text-slate-500">Chargement du scanner…</p>}>
-            <CodeScanner onResult={handleCodeResult} onCancel={() => setMode('photo')} />
+            <CodeScanner
+              onResult={handleCodeResult}
+              onFallback={handleCodeFallback}
+              onCancel={() => setMode('photo')}
+            />
           </Suspense>
         ) : (
           <label className="inline-flex items-center gap-2 rounded-md bg-slate-900 text-white px-4 py-2.5 font-medium hover:bg-slate-800 cursor-pointer">
@@ -208,6 +223,12 @@ export default function ScanLookup() {
               className="hidden"
             />
           </label>
+        )}
+
+        {scanning && mode === 'code' && (
+          <p className="text-sm text-slate-500">
+            Code non lu, nouvelle tentative en lecture de texte sur la même photo…
+          </p>
         )}
 
         {error && (
