@@ -1,8 +1,8 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
-import { useLocation, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { readSerialFromPhoto } from '../lib/ocr'
-import { ITEM_TYPES, ITEM_STATUSES, type Item } from '../lib/types'
+import { ITEM_TYPES, ITEM_STATUSES, type Item, type Inspection } from '../lib/types'
 import RequireAdmin from '../components/RequireAdmin'
 
 const emptyItem: Partial<Item> = {
@@ -30,6 +30,7 @@ export default function ItemForm() {
   const [knownModels, setKnownModels] = useState<string[]>([])
   const [scanning, setScanning] = useState(false)
   const [scanError, setScanError] = useState<string | null>(null)
+  const [inspections, setInspections] = useState<Inspection[]>([])
 
   useEffect(() => {
     if (!id) return
@@ -43,6 +44,12 @@ export default function ItemForm() {
         if (data) setForm(data as Item)
         setLoading(false)
       })
+    supabase
+      .from('inspections')
+      .select('*')
+      .eq('item_id', id)
+      .order('inspected_on', { ascending: false })
+      .then(({ data }) => setInspections((data as Inspection[]) ?? []))
   }, [id])
 
   // Suggestions "marque" : toutes les marques déjà utilisées, tous types confondus.
@@ -145,6 +152,29 @@ export default function ItemForm() {
         <h1 className="text-2xl font-semibold text-slate-900 mb-6">
           {isEditing ? `Modifier l'item #${id}` : 'Ajouter un item'}
         </h1>
+
+        {isEditing && (
+          <div className="mb-6 rounded-lg border border-slate-200 bg-white p-4">
+            <div className="flex items-center justify-between mb-2">
+              <p className="font-medium text-slate-900">Historique des contrôles SECT</p>
+              <Link to={`/materiel/${id}`} className="text-sm text-slate-500 hover:underline">
+                Ajouter un contrôle sur la fiche →
+              </Link>
+            </div>
+            {inspections.length === 0 ? (
+              <p className="text-sm text-slate-500">Aucun contrôle enregistré.</p>
+            ) : (
+              <ul className="space-y-1 text-sm">
+                {inspections.map((insp) => (
+                  <li key={insp.id} className="text-slate-700">
+                    <span className="font-mono">{insp.inspected_on}</span> — {insp.result}
+                    {insp.notes && <span className="text-slate-400"> ({insp.notes})</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
