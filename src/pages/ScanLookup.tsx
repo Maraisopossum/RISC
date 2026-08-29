@@ -30,6 +30,7 @@ export default function ScanLookup() {
   const [matches, setMatches] = useState<Match[]>([])
   const [error, setError] = useState<string | null>(null)
   const [manualInput, setManualInput] = useState('')
+  const [correctedText, setCorrectedText] = useState('')
 
   async function lookupSerial(text: string, source: Source) {
     // Recherche exacte directement côté serveur : fiable quel que soit le
@@ -63,6 +64,7 @@ export default function ScanLookup() {
     }
 
     setScannedText(text)
+    setCorrectedText(text)
     setScanSource(source)
 
     const scored = all
@@ -79,6 +81,7 @@ export default function ScanLookup() {
     setMatches([])
     setScannedText(null)
     setScanSource(null)
+    setCorrectedText('')
   }
 
   async function handleCodeResult(text: string) {
@@ -133,8 +136,16 @@ export default function ScanLookup() {
     await lookupSerial(text, 'manual')
   }
 
+  async function handleCorrectionSearch(e: FormEvent) {
+    e.preventDefault()
+    const text = correctedText.trim()
+    if (!text || !scanSource) return
+    setMatches([])
+    await lookupSerial(text, scanSource)
+  }
+
   function handleCreateNew() {
-    navigate('/materiel/nouveau', { state: { manufacturer_serial: scannedText } })
+    navigate('/materiel/nouveau', { state: { manufacturer_serial: correctedText } })
   }
 
   const sourceLabel: Record<Source, string> = {
@@ -239,16 +250,28 @@ export default function ScanLookup() {
 
         {scannedText && scanSource && (
           <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-4">
-            <p className="text-sm text-slate-500">
-              Numéro lu ({sourceLabel[scanSource]}) :{' '}
-              <span className="font-mono text-base text-slate-900">{scannedText}</span>
-              {scanSource !== 'code' && scanSource !== 'manual' && (
-                <>
-                  {' '}— la lecture sur métal gravé n'est pas garantie à 100 %, vérifiez la
-                  correspondance avant de valider.
-                </>
-              )}
-            </p>
+            <div>
+              <p className="text-sm text-slate-500 mb-1">
+                Numéro lu ({sourceLabel[scanSource]})
+                {scanSource !== 'code' && scanSource !== 'manual' && (
+                  <> — la lecture sur métal gravé n'est pas garantie à 100 %, corrigez si besoin :</>
+                )}
+              </p>
+              <form onSubmit={handleCorrectionSearch} className="flex gap-2">
+                <input
+                  type="text"
+                  value={correctedText}
+                  onChange={(e) => setCorrectedText(e.target.value)}
+                  className="input font-mono text-base"
+                />
+                <button
+                  type="submit"
+                  className="shrink-0 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium hover:bg-slate-100"
+                >
+                  Rechercher
+                </button>
+              </form>
+            </div>
 
             {matches.length === 0 ? (
               <p className="text-slate-500">
