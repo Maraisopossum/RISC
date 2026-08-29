@@ -15,6 +15,7 @@ export default function CodeScanner({ onResult, onCancel }: CodeScannerProps) {
   const scannerRef = useRef<Html5Qrcode | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [starting, setStarting] = useState(true)
+  const [slow, setSlow] = useState(false)
 
   useEffect(() => {
     const scanner = new Html5Qrcode(ELEMENT_ID, {
@@ -32,13 +33,26 @@ export default function CodeScanner({ onResult, onCancel }: CodeScannerProps) {
 
     let stopped = false
 
+    // Après quelques secondes sans détection, on suggère la bascule vers
+    // l'OCR — un DataMatrix petit et dense (gravé sur métal) est parfois
+    // hors de portée d'une caméra qui peine à faire la mise au point de près.
+    const slowTimeout = setTimeout(() => setSlow(true), 6000)
+
     scanner
       .start(
-        { facingMode: 'environment' },
-        { fps: 10, qrbox: { width: 250, height: 250 } },
+        {
+          facingMode: 'environment',
+          // Demande la meilleure résolution possible à la caméra : un
+          // DataMatrix est dense, il a besoin de beaucoup de pixels pour
+          // être décodé correctement à cette taille.
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+        { fps: 10, qrbox: { width: 280, height: 280 } },
         (decodedText) => {
           if (stopped) return
           stopped = true
+          clearTimeout(slowTimeout)
           // On attend que la caméra soit vraiment arrêtée avant de prévenir le
           // parent : celui-ci navigue généralement aussitôt (démonte ce
           // composant), et html5-qrcode manipule directement le DOM de la
@@ -65,6 +79,7 @@ export default function CodeScanner({ onResult, onCancel }: CodeScannerProps) {
       })
 
     return () => {
+      clearTimeout(slowTimeout)
       if (stopped) return // déjà arrêté par le callback de succès ci-dessus
       stopped = true
       if (scanner.isScanning) {
@@ -77,6 +92,13 @@ export default function CodeScanner({ onResult, onCancel }: CodeScannerProps) {
     <div className="space-y-3">
       <div id={ELEMENT_ID} className="mx-auto max-w-sm overflow-hidden rounded-lg bg-black" />
       {starting && <p className="text-center text-sm text-slate-500">Démarrage de la caméra…</p>}
+      {!starting && !error && slow && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          Toujours rien détecté ? Rapprochez-vous, assurez un bon éclairage et tenez le téléphone
+          stable — les DataMatrix denses sur métal sont parfois difficiles à lire pour la caméra.
+          Si ça ne passe pas, basculez vers "Numéro gravé (photo)" ci-dessus.
+        </p>
+      )}
       {error && (
         <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
           {error}
