@@ -60,14 +60,24 @@ export default function Layout() {
               Matériel
             </NavLink>
             {isAdmin && (
-              <NavLink
-                to="/materiel/nouveau"
-                className={({ isActive }) =>
-                  `${navItem} ${isActive ? navItemActive : navItemInactive}`
-                }
-              >
-                + Ajouter
-              </NavLink>
+              <>
+                <NavLink
+                  to="/scanner"
+                  className={({ isActive }) =>
+                    `${navItem} ${isActive ? navItemActive : navItemInactive}`
+                  }
+                >
+                  📷 Scanner
+                </NavLink>
+                <NavLink
+                  to="/materiel/nouveau"
+                  className={({ isActive }) =>
+                    `${navItem} ${isActive ? navItemActive : navItemInactive}`
+                  }
+                >
+                  + Ajouter
+                </NavLink>
+              </>
             )}
           </nav>
 

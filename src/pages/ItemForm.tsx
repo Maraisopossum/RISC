@@ -1,5 +1,5 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { readSerialFromPhoto } from '../lib/ocr'
 import { ITEM_TYPES, ITEM_STATUSES, type Item } from '../lib/types'
@@ -15,8 +15,14 @@ export default function ItemForm() {
   const { id } = useParams()
   const isEditing = Boolean(id)
   const navigate = useNavigate()
+  const location = useLocation()
+  // Pré-remplissage venant du scan rapide (page Rechercher/scanner un item) :
+  // numéro déjà lu, à confirmer/compléter ici.
+  const prefillSerial = (location.state as { manufacturer_serial?: string } | null)?.manufacturer_serial
 
-  const [form, setForm] = useState<Partial<Item>>(emptyItem)
+  const [form, setForm] = useState<Partial<Item>>(
+    prefillSerial ? { ...emptyItem, manufacturer_serial: prefillSerial } : emptyItem,
+  )
   const [loading, setLoading] = useState(isEditing)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -209,27 +215,29 @@ export default function ItemForm() {
               />
             </Field>
 
-            <Field label="N° fabricant">
-              <div className="flex gap-2">
-                <input
-                  value={form.manufacturer_serial ?? ''}
-                  onChange={(e) => update('manufacturer_serial', e.target.value)}
-                  className="input"
-                />
-                <label className="shrink-0 rounded-md border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100 cursor-pointer">
-                  {scanning ? '…' : '📷 Scanner'}
+            <div className="col-span-2">
+              <Field label="N° fabricant">
+                <div className="flex gap-2">
                   <input
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    onChange={handleScanSerial}
-                    disabled={scanning}
-                    className="hidden"
+                    value={form.manufacturer_serial ?? ''}
+                    onChange={(e) => update('manufacturer_serial', e.target.value)}
+                    className="input font-mono text-base tracking-wide"
                   />
-                </label>
-              </div>
-              {scanError && <p className="mt-1 text-xs text-amber-700">{scanError}</p>}
-            </Field>
+                  <label className="shrink-0 rounded-md border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100 cursor-pointer">
+                    {scanning ? '…' : '📷 Scanner'}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      onChange={handleScanSerial}
+                      disabled={scanning}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+                {scanError && <p className="mt-1 text-xs text-amber-700">{scanError}</p>}
+              </Field>
+            </div>
 
             <Field label="Date de fabrication">
               <input

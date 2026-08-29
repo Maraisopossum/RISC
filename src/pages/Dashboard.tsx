@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../auth/AuthContext'
 import type { ItemWithAlerts, ItemStatus } from '../lib/types'
 
 const STATUS_LABEL: Record<ItemStatus, string> = {
@@ -13,6 +14,7 @@ const STATUS_LABEL: Record<ItemStatus, string> = {
 const TOP_ALERTS_LIMIT = 100
 
 export default function Dashboard() {
+  const { isAdmin } = useAuth()
   const [statusCounts, setStatusCounts] = useState<Record<string, number>>({})
   const [toReview, setToReview] = useState<ItemWithAlerts[]>([])
   const [alertsTotal, setAlertsTotal] = useState(0)
@@ -68,9 +70,19 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-semibold text-slate-900">Tableau de bord</h1>
-        <p className="text-slate-500">Vue d'ensemble de l'inventaire RISC</p>
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold text-slate-900">Tableau de bord</h1>
+          <p className="text-slate-500">Vue d'ensemble de l'inventaire RISC</p>
+        </div>
+        {isAdmin && (
+          <Link
+            to="/scanner"
+            className="inline-flex items-center gap-2 rounded-md bg-slate-900 text-white px-4 py-2.5 font-medium hover:bg-slate-800"
+          >
+            📷 Scanner un numéro
+          </Link>
+        )}
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
