@@ -93,7 +93,7 @@ type ItemInsert = {
 
 // Colonnes communes aux feuilles Inventaire / Stock / Déclassé-Disparu :
 // ID RISC, Type, Textile?, Marque, Modèle, Longueur textile, Remarques & spécificité,
-// N° fabricant, Date fabrication, Date sortie service, Contrôle x3, Remarques, Alerte
+// N° fabriquant, Date fabrication, Date sortie service, Contrôle x3, Remarques, Alerte
 function rowToItem(row: RawRow, status: ItemInsert['status'], legacyId?: number): ItemInsert {
   const mfg = parseManufactureDate(row['Date de fabrication'])
   return {
@@ -103,7 +103,7 @@ function rowToItem(row: RawRow, status: ItemInsert['status'], legacyId?: number)
     model: (row['Modèle'] as string) || null,
     textile_length_m: typeof row['Longueur textile (m)'] === 'number' ? (row['Longueur textile (m)'] as number) : null,
     specifics: (row['Remarques & spécificité'] as string) || null,
-    manufacturer_serial: (row['N° fabricant'] as string) || null,
+    manufacturer_serial: (row['N° fabriquant'] as string) || null,
     manufacture_date: mfg.date,
     manufacture_date_unknown: mfg.unknown,
     decommission_date: parseDate(row['Date sortie de service']),
