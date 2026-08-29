@@ -27,6 +27,7 @@ export default function ItemsList() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
@@ -35,6 +36,14 @@ export default function ItemsList() {
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [bulkStatus, setBulkStatus] = useState<string>(ITEM_STATUSES[0].value)
   const [bulkSaving, setBulkSaving] = useState(false)
+
+  // Anti-rebond : on ne relance la recherche que 300ms après la dernière
+  // frappe, pour éviter une requête (et un scintillement de la table) à
+  // chaque caractère tapé.
+  useEffect(() => {
+    const timeout = setTimeout(() => setSearch(searchInput), 300)
+    return () => clearTimeout(timeout)
+  }, [searchInput])
 
   function applyFilters<T>(query: T): T {
     // biome-ignore lint: chaînage générique sur le query builder Supabase
@@ -192,8 +201,8 @@ export default function ItemsList() {
         <input
           type="text"
           placeholder="Rechercher (ID, marque, modèle, N° fabricant…)"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
           className="flex-1 min-w-[220px] rounded-md border border-slate-300 px-3 py-2 text-sm"
         />
         <select
@@ -283,8 +292,8 @@ export default function ItemsList() {
               {isAdmin && <th className="px-4 py-2" />}
             </tr>
           </thead>
-          <tbody>
-            {loading ? (
+          <tbody className={loading ? 'opacity-50 transition-opacity' : 'transition-opacity'}>
+            {loading && items.length === 0 ? (
               <tr>
                 <td colSpan={COLUMNS.length + 2} className="px-4 py-6 text-center text-slate-400">
                   Chargement…
