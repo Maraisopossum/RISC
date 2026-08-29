@@ -59,6 +59,14 @@ export default function Layout() {
             >
               Matériel
             </NavLink>
+            <NavLink
+              to="/cordes"
+              className={({ isActive }) =>
+                `${navItem} ${isActive ? navItemActive : navItemInactive}`
+              }
+            >
+              Cordes
+            </NavLink>
             {isAdmin && (
               <>
                 <NavLink
@@ -76,6 +84,14 @@ export default function Layout() {
                   }
                 >
                   + Ajouter
+                </NavLink>
+                <NavLink
+                  to="/verification"
+                  className={({ isActive }) =>
+                    `${navItem} ${isActive ? navItemActive : navItemInactive}`
+                  }
+                >
+                  ⚠ À vérifier
                 </NavLink>
               </>
             )}

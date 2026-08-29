@@ -41,6 +41,8 @@ export interface Item {
   rope_rotation: string | null
   remarks: string | null
   legacy_notes: string | null
+  created_by: string | null
+  updated_by: string | null
   created_at: string
   updated_at: string
 }

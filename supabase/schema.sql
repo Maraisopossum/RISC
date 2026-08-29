@@ -40,8 +40,10 @@ $$ language sql security definer stable set search_path = public;
 
 alter table profiles enable row level security;
 
-create policy "profiles_select_own" on profiles
-  for select using (id = auth.uid());
+-- Visible aux seuls comptes connectés (jamais au public en lecture seule) :
+-- permet d'afficher qui a créé/modifié un item parmi les admins.
+create policy "profiles_select_authenticated" on profiles
+  for select using (auth.role() = 'authenticated');
 
 create policy "profiles_update_own_role_locked" on profiles
   for update using (id = auth.uid())
@@ -73,6 +75,8 @@ create table if not exists items (
   rope_rotation text,             -- ex: "stock tampon", notes de rotation
   remarks text,
   legacy_notes text,              -- import brut des colonnes "Remarques"/"Alerte" texte libre historiques
+  created_by uuid references profiles(id),
+  updated_by uuid references profiles(id),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -92,6 +96,26 @@ drop trigger if exists items_set_updated_at on items;
 create trigger items_set_updated_at
   before update on items
   for each row execute function set_updated_at();
+
+-- Traçabilité : qui a créé/modifié un item.
+create or replace function set_items_audit()
+returns trigger as $$
+begin
+  if TG_OP = 'INSERT' then
+    new.created_by := auth.uid();
+    new.updated_by := auth.uid();
+  elsif TG_OP = 'UPDATE' then
+    new.updated_by := auth.uid();
+    new.created_by := old.created_by; -- ne change jamais après la création
+  end if;
+  return new;
+end;
+$$ language plpgsql security definer set search_path = public;
+
+drop trigger if exists items_set_audit on items;
+create trigger items_set_audit
+  before insert or update on items
+  for each row execute function set_items_audit();
 
 -- Utilisé une seule fois par le script scripts/import-excel.ts après la migration,
 -- pour que la séquence d'auto-incrémentation reparte après le plus grand ID RISC importé.

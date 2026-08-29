@@ -16,6 +16,10 @@ export default function ItemDetail() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [offlineSince, setOfflineSince] = useState<string | null>(null)
+  const [audit, setAudit] = useState<{ createdBy: string | null; updatedBy: string | null }>({
+    createdBy: null,
+    updatedBy: null,
+  })
 
   const [newDate, setNewDate] = useState('')
   const [newResult, setNewResult] = useState('OK')
@@ -55,6 +59,24 @@ export default function ItemDetail() {
     setInspections((inspRes.data as Inspection[]) ?? [])
     setLoading(false)
     cacheItem(itemRes.data as Item, (inspRes.data as Inspection[]) ?? [])
+
+    if (isAdmin) {
+      const { data } = await supabase
+        .from('items')
+        .select(
+          'created_by_profile:profiles!items_created_by_fkey(email), updated_by_profile:profiles!items_updated_by_fkey(email)',
+        )
+        .eq('id', id)
+        .single()
+      const row = data as unknown as {
+        created_by_profile: { email: string | null } | null
+        updated_by_profile: { email: string | null } | null
+      } | null
+      setAudit({
+        createdBy: row?.created_by_profile?.email ?? null,
+        updatedBy: row?.updated_by_profile?.email ?? null,
+      })
+    }
   }
 
   useEffect(() => {
@@ -114,6 +136,15 @@ export default function ItemDetail() {
           <p className="text-slate-500">
             {[item.brand, item.model].filter(Boolean).join(' · ') || 'Sans marque/modèle'}
           </p>
+          {isAdmin && (audit.createdBy || audit.updatedBy) && (
+            <p className="text-xs text-slate-400 mt-1">
+              {audit.createdBy && <>Créé par {audit.createdBy}</>}
+              {audit.createdBy && audit.updatedBy && audit.updatedBy !== audit.createdBy && (
+                <> · Dernière modification par {audit.updatedBy}</>
+              )}
+              {!audit.createdBy && audit.updatedBy && <>Dernière modification par {audit.updatedBy}</>}
+            </p>
+          )}
         </div>
         {isAdmin && !offlineSince && (
           <div className="flex gap-2">
