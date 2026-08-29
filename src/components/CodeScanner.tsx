@@ -39,8 +39,15 @@ export default function CodeScanner({ onResult, onCancel }: CodeScannerProps) {
         (decodedText) => {
           if (stopped) return
           stopped = true
-          scanner.stop().catch(() => {})
-          onResult(decodedText)
+          // On attend que la caméra soit vraiment arrêtée avant de prévenir le
+          // parent : celui-ci navigue généralement aussitôt (démonte ce
+          // composant), et html5-qrcode manipule directement le DOM de la
+          // vidéo — le faire pendant que React retire l'élément fait planter
+          // toute l'appli (page blanche, aucune erreur visible).
+          scanner
+            .stop()
+            .catch(() => {})
+            .finally(() => onResult(decodedText))
         },
         () => {
           // Appelé en continu tant qu'aucun code n'est détecté dans l'image :
@@ -58,8 +65,11 @@ export default function CodeScanner({ onResult, onCancel }: CodeScannerProps) {
       })
 
     return () => {
+      if (stopped) return // déjà arrêté par le callback de succès ci-dessus
       stopped = true
-      scanner.stop().catch(() => {})
+      if (scanner.isScanning) {
+        scanner.stop().catch(() => {})
+      }
     }
   }, [onResult])
 
