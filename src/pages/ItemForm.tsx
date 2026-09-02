@@ -48,6 +48,8 @@ export default function ItemForm() {
   const [serialRows, setSerialRows] = useState<SerialRow[]>([
     { id: 0, value: prefillSerial ?? '', scanning: false, error: null },
   ])
+  const [showCountPicker, setShowCountPicker] = useState(false)
+  const [countInput, setCountInput] = useState('')
 
   useEffect(() => {
     if (!id) return
@@ -159,15 +161,32 @@ export default function ItemForm() {
     setSerialRows((rows) => rows.map((r) => (r.id === rowId ? { ...r, value } : r)))
   }
 
-  function addSerialRow() {
-    setSerialRows((rows) => [
-      ...rows,
-      { id: nextRowId.current++, value: '', scanning: false, error: null },
-    ])
-  }
-
   function removeSerialRow(rowId: number) {
     setSerialRows((rows) => (rows.length > 1 ? rows.filter((r) => r.id !== rowId) : rows))
+  }
+
+  // Ajuste le nombre de lignes au total demandé : garde les valeurs déjà
+  // saisies, ajoute des lignes vides si on augmente, retire des lignes vides
+  // en priorité (plutôt qu'une saisie) si on diminue.
+  function setRowCount(count: number) {
+    const target = Math.max(1, Math.floor(count) || 1)
+    setSerialRows((rows) => {
+      if (target > rows.length) {
+        const extra = Array.from({ length: target - rows.length }, () => ({
+          id: nextRowId.current++,
+          value: '',
+          scanning: false,
+          error: null,
+        }))
+        return [...rows, ...extra]
+      }
+      if (target < rows.length) {
+        const filled = rows.filter((r) => r.value.trim())
+        const empty = rows.filter((r) => !r.value.trim())
+        return [...filled, ...empty].slice(0, Math.max(target, filled.length))
+      }
+      return rows
+    })
   }
 
   async function handleScanSerialRow(rowId: number, e: ChangeEvent<HTMLInputElement>) {
@@ -461,24 +480,73 @@ export default function ItemForm() {
                               ×
                             </button>
                           )}
-                          {i === serialRows.length - 1 && (
-                            <button
-                              type="button"
-                              onClick={addSerialRow}
-                              className="shrink-0 rounded-md border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100"
-                              aria-label="Ajouter un autre N° fabricant"
-                              title="Créer un autre item identique avec un N° fabricant différent"
-                            >
-                              +
-                            </button>
-                          )}
                         </div>
                         {row.error && <p className="mt-1 text-xs text-amber-700">{row.error}</p>}
                       </div>
                     ))}
                   </div>
+
+                  <div className="mt-2">
+                    {showCountPicker ? (
+                      // Un <div>, pas un <form> : on est déjà à l'intérieur du
+                      // formulaire principal, et un <form> imbriqué est invalide
+                      // en HTML (comportement de soumission imprévisible).
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-slate-600">Nombre total d'items à créer :</span>
+                        <input
+                          type="number"
+                          min={1}
+                          autoFocus
+                          value={countInput}
+                          onChange={(e) => setCountInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              setRowCount(Number(countInput))
+                              setShowCountPicker(false)
+                              setCountInput('')
+                            }
+                          }}
+                          className="input w-20"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRowCount(Number(countInput))
+                            setShowCountPicker(false)
+                            setCountInput('')
+                          }}
+                          className="shrink-0 rounded-md bg-slate-900 text-white px-3 py-1.5 text-sm font-medium hover:bg-slate-800"
+                        >
+                          OK
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowCountPicker(false)
+                            setCountInput('')
+                          }}
+                          className="text-sm text-slate-500 hover:underline"
+                        >
+                          Annuler
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCountInput(String(serialRows.length))
+                          setShowCountPicker(true)
+                        }}
+                        className="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100"
+                      >
+                        + Créer plusieurs items identiques
+                      </button>
+                    )}
+                  </div>
+
                   {serialRows.length > 1 && (
-                    <p className="mt-1 text-xs text-slate-500">
+                    <p className="mt-2 text-xs text-slate-500">
                       Un item identique (même type/marque/modèle/coloris) sera créé pour chaque N°
                       fabricant renseigné ci-dessus.
                     </p>
