@@ -7,7 +7,7 @@ import { ITEM_TYPES, ITEM_STATUSES, type ItemWithAlerts } from '../lib/types'
 
 const PAGE_SIZE = 50
 
-type SortColumn = 'id' | 'type' | 'brand' | 'model' | 'manufacturer_serial' | 'status' | 'last_inspection_on'
+type SortColumn = 'id' | 'type' | 'brand' | 'model' | 'manufacturer_serial' | 'manufacture_date' | 'status' | 'last_inspection_on'
 
 const COLUMNS: { key: SortColumn; label: string }[] = [
   { key: 'id', label: 'ID' },
@@ -15,6 +15,7 @@ const COLUMNS: { key: SortColumn; label: string }[] = [
   { key: 'brand', label: 'Marque' },
   { key: 'model', label: 'Modèle' },
   { key: 'manufacturer_serial', label: 'N° fabricant' },
+  { key: 'manufacture_date', label: 'Date de fabrication' },
   { key: 'status', label: 'Statut' },
   { key: 'last_inspection_on', label: 'Dernier contrôle' },
 ]
@@ -326,6 +327,11 @@ export default function ItemsList() {
                   <td className="px-4 py-2">{item.brand ?? '—'}</td>
                   <td className="px-4 py-2">{item.model ?? '—'}</td>
                   <td className="px-4 py-2">{item.manufacturer_serial ?? '—'}</td>
+                  <td className="px-4 py-2">
+                    {item.manufacture_date_unknown
+                      ? 'Inconnue'
+                      : (item.manufacture_date ?? '—')}
+                  </td>
                   <td className="px-4 py-2">
                     {ITEM_STATUSES.find((s) => s.value === item.status)?.label}
                   </td>
