@@ -203,7 +203,20 @@ export default function ItemForm() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form
+          onSubmit={handleSubmit}
+          // Empêche la touche Entrée dans un champ texte de soumettre le
+          // formulaire (comportement HTML par défaut) : un simple appui sur
+          // Entrée après avoir rempli/scanné le N° fabricant enregistrait
+          // l'item et changeait de page sans que ce soit voulu. Seul le clic
+          // explicite sur "Enregistrer" doit soumettre.
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && e.target instanceof HTMLInputElement) {
+              e.preventDefault()
+            }
+          }}
+          className="space-y-4"
+        >
           <div className="grid grid-cols-2 gap-4">
             <Field label="Type">
               <input
