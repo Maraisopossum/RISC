@@ -7,13 +7,14 @@ import { ITEM_TYPES, ITEM_STATUSES, type ItemWithAlerts } from '../lib/types'
 
 const PAGE_SIZE = 50
 
-type SortColumn = 'id' | 'type' | 'brand' | 'model' | 'manufacturer_serial' | 'manufacture_date' | 'status' | 'last_inspection_on'
+type SortColumn = 'id' | 'type' | 'brand' | 'model' | 'color' | 'manufacturer_serial' | 'manufacture_date' | 'status' | 'last_inspection_on'
 
 const COLUMNS: { key: SortColumn; label: string }[] = [
   { key: 'id', label: 'ID' },
   { key: 'type', label: 'Type' },
   { key: 'brand', label: 'Marque' },
   { key: 'model', label: 'Modèle' },
+  { key: 'color', label: 'Coloris' },
   { key: 'manufacturer_serial', label: 'N° fabricant' },
   { key: 'manufacture_date', label: 'Date de fabrication' },
   { key: 'status', label: 'Statut' },
@@ -185,6 +186,7 @@ export default function ItemsList() {
         Type: item.type,
         Marque: item.brand,
         Modèle: item.model,
+        Coloris: item.color,
         'Longueur textile (m)': item.textile_length_m,
         'N° fabricant': item.manufacturer_serial,
         'Date de fabrication': item.manufacture_date_unknown
@@ -340,6 +342,7 @@ export default function ItemsList() {
                   <td className="px-4 py-2">{item.type}</td>
                   <td className="px-4 py-2">{item.brand ?? '—'}</td>
                   <td className="px-4 py-2">{item.model ?? '—'}</td>
+                  <td className="px-4 py-2">{item.color ?? '—'}</td>
                   <td className="px-4 py-2">{item.manufacturer_serial ?? '—'}</td>
                   <td className="px-4 py-2">
                     {item.manufacture_date_unknown

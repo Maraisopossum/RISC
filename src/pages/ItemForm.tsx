@@ -29,6 +29,7 @@ export default function ItemForm() {
   const [knownTypes, setKnownTypes] = useState<string[]>([...ITEM_TYPES])
   const [knownBrands, setKnownBrands] = useState<string[]>([])
   const [knownModels, setKnownModels] = useState<string[]>([])
+  const [knownColors, setKnownColors] = useState<string[]>([])
   const [scanning, setScanning] = useState(false)
   const [scanError, setScanError] = useState<string | null>(null)
   const [inspections, setInspections] = useState<Inspection[]>([])
@@ -90,6 +91,18 @@ export default function ItemForm() {
     })
   }, [form.type, form.brand])
 
+  // Suggestions "coloris" : toutes les couleurs déjà utilisées, tous types confondus.
+  useEffect(() => {
+    supabase
+      .from('items')
+      .select('color')
+      .not('color', 'is', null)
+      .then(({ data }) => {
+        const unique = [...new Set((data ?? []).map((r) => r.color as string))].sort()
+        setKnownColors(unique)
+      })
+  }, [])
+
   function update<K extends keyof Item>(key: K, value: Item[K]) {
     setForm((f) => ({ ...f, [key]: value }))
   }
@@ -134,7 +147,7 @@ export default function ItemForm() {
       manufacture_date_unknown: form.manufacture_date_unknown ?? false,
       decommission_date: form.decommission_date || null,
       status: form.status,
-      rope_color: form.rope_color || null,
+      color: form.color || null,
       rope_rotation: form.rope_rotation || null,
       remarks: form.remarks || null,
     }
@@ -260,6 +273,20 @@ export default function ItemForm() {
               />
             </Field>
 
+            <Field label="Coloris">
+              <input
+                list="known-colors"
+                value={form.color ?? ''}
+                onChange={(e) => update('color', e.target.value)}
+                className="input"
+              />
+              <datalist id="known-colors">
+                {knownColors.map((c) => (
+                  <option key={c} value={c} />
+                ))}
+              </datalist>
+            </Field>
+
             <div className="col-span-2">
               <Field label="N° fabricant">
                 <div className="flex gap-2">
@@ -312,22 +339,13 @@ export default function ItemForm() {
             </Field>
 
             {form.type === 'Corde' && (
-              <>
-                <Field label="Couleur (corde)">
-                  <input
-                    value={form.rope_color ?? ''}
-                    onChange={(e) => update('rope_color', e.target.value)}
-                    className="input"
-                  />
-                </Field>
-                <Field label="Rotation / stock tampon">
-                  <input
-                    value={form.rope_rotation ?? ''}
-                    onChange={(e) => update('rope_rotation', e.target.value)}
-                    className="input"
-                  />
-                </Field>
-              </>
+              <Field label="Rotation / stock tampon">
+                <input
+                  value={form.rope_rotation ?? ''}
+                  onChange={(e) => update('rope_rotation', e.target.value)}
+                  className="input"
+                />
+              </Field>
             )}
           </div>
 

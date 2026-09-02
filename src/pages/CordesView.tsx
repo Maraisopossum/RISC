@@ -15,7 +15,7 @@ export default function CordesView() {
       .from('items_with_alerts')
       .select('*')
       .eq('type', 'Corde')
-      .order('rope_color', { ascending: true, nullsFirst: false })
+      .order('color', { ascending: true, nullsFirst: false })
       .order('id')
       .then(({ data, error }) => {
         if (error) setError(error.message)
@@ -29,7 +29,7 @@ export default function CordesView() {
 
   const byColor = new Map<string, ItemWithAlerts[]>()
   for (const rope of ropes) {
-    const key = rope.rope_color || NO_COLOR
+    const key = rope.color || NO_COLOR
     if (!byColor.has(key)) byColor.set(key, [])
     byColor.get(key)!.push(rope)
   }
@@ -92,7 +92,7 @@ export default function CordesView() {
                       #{rope.id}
                     </Link>
                   </td>
-                  <td className="px-4 py-2">{rope.rope_color ?? '—'}</td>
+                  <td className="px-4 py-2">{rope.color ?? '—'}</td>
                   <td className="px-4 py-2">{rope.rope_rotation ?? '—'}</td>
                   <td className="px-4 py-2">
                     {[rope.brand, rope.model].filter(Boolean).join(' · ') || '—'}

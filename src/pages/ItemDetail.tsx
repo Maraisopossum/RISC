@@ -173,7 +173,7 @@ export default function ItemDetail() {
         />
         <Info label="Longueur textile" value={item.textile_length_m ? `${item.textile_length_m} m` : null} />
         <Info label="Date sortie de service" value={item.decommission_date} />
-        {item.type === 'Corde' && <Info label="Couleur" value={item.rope_color} />}
+        <Info label="Coloris" value={item.color} />
         {item.type === 'Corde' && <Info label="Rotation" value={item.rope_rotation} />}
         {item.specifics && (
           <div className="col-span-full">

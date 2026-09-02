@@ -71,7 +71,7 @@ create table if not exists items (
   decommission_date date,
   status text not null default 'en_service'
     check (status in ('stock', 'en_service', 'declasse', 'disparu')),
-  rope_color text,                -- uniquement pertinent pour type = 'Corde'
+  color text,                     -- coloris, tout type de matériel
   rope_rotation text,             -- ex: "stock tampon", notes de rotation
   remarks text,
   legacy_notes text,              -- import brut des colonnes "Remarques"/"Alerte" texte libre historiques

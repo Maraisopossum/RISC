@@ -37,7 +37,7 @@ export interface Item {
   manufacture_date_unknown: boolean
   decommission_date: string | null
   status: ItemStatus
-  rope_color: string | null
+  color: string | null
   rope_rotation: string | null
   remarks: string | null
   legacy_notes: string | null
