@@ -8,6 +8,7 @@ import ItemForm from './pages/ItemForm'
 import ScanLookup from './pages/ScanLookup'
 import CordesView from './pages/CordesView'
 import ToReview from './pages/ToReview'
+import Accounts from './pages/Accounts'
 import Login from './pages/Login'
 
 export default function App() {
@@ -22,6 +23,7 @@ export default function App() {
             <Route path="scanner" element={<ScanLookup />} />
             <Route path="cordes" element={<CordesView />} />
             <Route path="verification" element={<ToReview />} />
+            <Route path="comptes" element={<Accounts />} />
             <Route path="materiel/:id" element={<ItemDetail />} />
             <Route path="materiel/:id/modifier" element={<ItemForm />} />
             <Route path="connexion" element={<Login />} />

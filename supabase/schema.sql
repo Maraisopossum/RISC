@@ -8,7 +8,7 @@
 create table if not exists profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   email text,
-  role text not null default 'lecture' check (role in ('admin', 'lecture')),
+  role text not null default 'lecture' check (role in ('admin', 'controleur', 'lecture')),
   created_at timestamptz not null default now()
 );
 
@@ -48,6 +48,10 @@ create policy "profiles_select_authenticated" on profiles
 create policy "profiles_update_own_role_locked" on profiles
   for update using (id = auth.uid())
   with check (id = auth.uid() and role = (select role from profiles where id = auth.uid()));
+
+-- Un admin peut modifier n'importe quel profil (changer un rôle, typiquement).
+create policy "profiles_update_admin" on profiles
+  for update using (is_admin()) with check (is_admin());
 
 -- =========================================================
 -- 2. Matériel (remplace les feuilles Inventaire / Stock / Déclassé-Disparu)
@@ -155,8 +159,17 @@ create index if not exists inspections_item_idx on inspections (item_id, inspect
 
 alter table inspections enable row level security;
 
+-- Un admin ou un contrôleur peut ajouter un contrôle SECT (création/
+-- modification/suppression d'items reste réservée aux admins, voir plus haut).
+create or replace function can_inspect()
+returns boolean as $$
+  select exists (
+    select 1 from public.profiles where id = auth.uid() and role in ('admin', 'controleur')
+  );
+$$ language sql security definer stable set search_path = public;
+
 create policy "inspections_select_all" on inspections for select using (true);
-create policy "inspections_insert_admin" on inspections for insert with check (is_admin());
+create policy "inspections_insert_admin_or_controleur" on inspections for insert with check (can_inspect());
 create policy "inspections_update_admin" on inspections for update using (is_admin());
 create policy "inspections_delete_admin" on inspections for delete using (is_admin());
 

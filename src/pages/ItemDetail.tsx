@@ -9,7 +9,7 @@ import QrLabel from '../components/QrLabel'
 export default function ItemDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { isAdmin, profile } = useAuth()
+  const { isAdmin, canInspect, profile } = useAuth()
 
   const [item, setItem] = useState<Item | null>(null)
   const [inspections, setInspections] = useState<Inspection[]>([])
@@ -207,7 +207,7 @@ export default function ItemDetail() {
           </ul>
         )}
 
-        {isAdmin && !offlineSince && (
+        {canInspect && !offlineSince && (
           <form onSubmit={handleAddInspection} className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
             <p className="font-medium text-slate-900">Ajouter un contrôle</p>
             <div className="grid grid-cols-2 gap-3">

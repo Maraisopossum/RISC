@@ -66,5 +66,5 @@ export interface Inspection {
 export type Profile = {
   id: string
   email: string | null
-  role: 'admin' | 'lecture'
+  role: 'admin' | 'controleur' | 'lecture'
 }

@@ -21,8 +21,14 @@ const navItem =
 const navItemActive = 'bg-slate-900 text-white'
 const navItemInactive = 'text-slate-600 hover:bg-slate-100'
 
+const ROLE_LABEL: Record<string, string> = {
+  admin: 'Admin',
+  controleur: 'Contrôleur',
+  lecture: 'Lecture',
+}
+
 export default function Layout() {
-  const { session, profile, isAdmin, signOut } = useAuth()
+  const { session, profile, isAdmin, canInspect, signOut } = useAuth()
   const online = useOnlineStatus()
 
   return (
@@ -67,16 +73,18 @@ export default function Layout() {
             >
               Cordes
             </NavLink>
+            {canInspect && (
+              <NavLink
+                to="/scanner"
+                className={({ isActive }) =>
+                  `${navItem} ${isActive ? navItemActive : navItemInactive}`
+                }
+              >
+                📷 Scanner
+              </NavLink>
+            )}
             {isAdmin && (
               <>
-                <NavLink
-                  to="/scanner"
-                  className={({ isActive }) =>
-                    `${navItem} ${isActive ? navItemActive : navItemInactive}`
-                  }
-                >
-                  📷 Scanner
-                </NavLink>
                 <NavLink
                   to="/materiel/nouveau"
                   className={({ isActive }) =>
@@ -93,6 +101,14 @@ export default function Layout() {
                 >
                   ⚠ À vérifier
                 </NavLink>
+                <NavLink
+                  to="/comptes"
+                  className={({ isActive }) =>
+                    `${navItem} ${isActive ? navItemActive : navItemInactive}`
+                  }
+                >
+                  👤 Comptes
+                </NavLink>
               </>
             )}
           </nav>
@@ -101,7 +117,7 @@ export default function Layout() {
             {session ? (
               <>
                 <span className="text-slate-500 hidden sm:inline">
-                  {profile?.email} · {isAdmin ? 'Admin' : 'Lecture'}
+                  {profile?.email} · {profile?.role ? ROLE_LABEL[profile.role] : '…'}
                 </span>
                 <button
                   onClick={() => signOut()}

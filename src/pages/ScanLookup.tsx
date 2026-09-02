@@ -6,7 +6,8 @@ import { similarity } from '../lib/fuzzy'
 import { parseItemIdFromScan } from '../lib/qr'
 import { fetchAllRows } from '../lib/fetchAll'
 import { ITEM_STATUSES, type Item } from '../lib/types'
-import RequireAdmin from '../components/RequireAdmin'
+import RequireInspector from '../components/RequireInspector'
+import { useAuth } from '../auth/AuthContext'
 
 // html5-qrcode (~400 Ko) n'est chargé que si on ouvre vraiment le scanner,
 // pas sur les autres pages de l'appli.
@@ -23,6 +24,7 @@ const MIN_SCORE = 0.4 // en dessous, la suggestion n'a plus de sens
 
 export default function ScanLookup() {
   const navigate = useNavigate()
+  const { isAdmin } = useAuth()
   const [mode, setMode] = useState<Mode>('code')
   const [scanning, setScanning] = useState(false)
   const [scannedText, setScannedText] = useState<string | null>(null)
@@ -156,7 +158,7 @@ export default function ScanLookup() {
   }
 
   return (
-    <RequireAdmin>
+    <RequireInspector>
       <div className="max-w-2xl space-y-6">
         <div>
           <h1 className="text-2xl font-semibold text-slate-900">Scanner un item</h1>
@@ -295,7 +297,9 @@ export default function ScanLookup() {
                       </p>
                     </div>
                     <button
-                      onClick={() => navigate(`/materiel/${m.id}/modifier`)}
+                      onClick={() =>
+                        navigate(isAdmin ? `/materiel/${m.id}/modifier` : `/materiel/${m.id}`)
+                      }
                       className="shrink-0 rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100"
                     >
                       C'est celui-ci
@@ -305,15 +309,21 @@ export default function ScanLookup() {
               </ul>
             )}
 
-            <button
-              onClick={handleCreateNew}
-              className="w-full rounded-md border border-dashed border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-            >
-              + Aucun ne correspond — créer un nouvel item avec ce numéro
-            </button>
+            {isAdmin ? (
+              <button
+                onClick={handleCreateNew}
+                className="w-full rounded-md border border-dashed border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                + Aucun ne correspond — créer un nouvel item avec ce numéro
+              </button>
+            ) : (
+              <p className="text-sm text-slate-500">
+                Aucun ne correspond ? Un compte admin doit créer la fiche pour ce numéro.
+              </p>
+            )}
           </div>
         )}
       </div>
-    </RequireAdmin>
+    </RequireInspector>
   )
 }

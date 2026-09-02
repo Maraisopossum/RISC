@@ -8,6 +8,9 @@ interface AuthState {
   profile: Profile | null
   loading: boolean
   isAdmin: boolean
+  // Peut ajouter un contrôle SECT et utiliser le scanner pour retrouver une
+  // fiche (admin ou contrôleur) — mais pas créer/modifier un item.
+  canInspect: boolean
   signInWithPassword: (email: string, password: string) => Promise<{ error: string | null }>
   signOut: () => Promise<void>
 }
@@ -61,6 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         profile,
         loading,
         isAdmin: profile?.role === 'admin',
+        canInspect: profile?.role === 'admin' || profile?.role === 'controleur',
         signInWithPassword,
         signOut,
       }}

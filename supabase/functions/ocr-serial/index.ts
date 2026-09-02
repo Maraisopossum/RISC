@@ -1,8 +1,16 @@
 // Relais vers Groq (vision) pour lire un numéro de série gravé/imprimé sur
 // une photo de matériel. La clé Groq reste côté serveur (secret Supabase) :
-// le navigateur ne la voit jamais. Accès restreint aux comptes connectés via
-// verify_jwt = true (supabase/config.toml) — seuls les admins ont un compte.
+// le navigateur ne la voit jamais.
+//
+// Accès réservé aux admins et contrôleurs : depuis l'introduction des rôles,
+// verify_jwt=true (n'importe quel compte connecté) ne suffit plus. Le
+// contrôleur peut scanner pour retrouver la fiche d'un item existant (afin
+// d'y ajouter un contrôle), mais ne peut pas créer/modifier un item — ça
+// reste bloqué par les policies RLS sur la table items, indépendamment d'ici.
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
+const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!
 const GROQ_API_KEY = Deno.env.get('GROQ_API_KEY')
 // Gamme Groq vision au 2026-08 : qwen3.6-27b / qwen3.8-27b (voir
 // https://console.groq.com/docs/vision). Vérifier ce nom si Groq fait
@@ -23,6 +31,28 @@ Deno.serve(async (req: Request) => {
     return Response.json(
       { error: 'GROQ_API_KEY non configurée côté serveur.' },
       { status: 500, headers: corsHeaders },
+    )
+  }
+
+  const authHeader = req.headers.get('Authorization') ?? ''
+  const callerClient = createClient(SUPABASE_URL, ANON_KEY, {
+    global: { headers: { Authorization: authHeader } },
+  })
+  const {
+    data: { user },
+  } = await callerClient.auth.getUser()
+  if (!user) {
+    return Response.json({ error: 'Non authentifié.' }, { status: 401, headers: corsHeaders })
+  }
+  const { data: callerProfile } = await callerClient
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+  if (callerProfile?.role !== 'admin' && callerProfile?.role !== 'controleur') {
+    return Response.json(
+      { error: 'Réservé aux comptes admin ou contrôleur.' },
+      { status: 403, headers: corsHeaders },
     )
   }
 

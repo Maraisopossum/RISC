@@ -424,3 +424,17 @@ entrypoint = "./functions/ocr-serial/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/ocr-serial/*.html" ]
+
+[functions.create-account]
+enabled = true
+# Le gate au niveau plateforme (n'importe quel compte connecté) ne suffit
+# plus depuis l'introduction des rôles controleur/lecture : la fonction
+# vérifie elle-même en plus que l'appelant est admin.
+verify_jwt = true
+import_map = "./functions/create-account/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/create-account/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/create-account/*.html" ]
