@@ -1,4 +1,4 @@
-import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { readSerialFromPhoto } from '../lib/ocr'
@@ -6,9 +6,15 @@ import { ITEM_TYPES, ITEM_STATUSES, type Item, type Inspection } from '../lib/ty
 import RequireAdmin from '../components/RequireAdmin'
 
 const emptyItem: Partial<Item> = {
-  type: ITEM_TYPES[0],
-  status: 'en_service',
+  status: 'stock',
   manufacture_date_unknown: false,
+}
+
+interface SerialRow {
+  id: number
+  value: string
+  scanning: boolean
+  error: string | null
 }
 
 export default function ItemForm() {
@@ -33,6 +39,15 @@ export default function ItemForm() {
   const [scanning, setScanning] = useState(false)
   const [scanError, setScanError] = useState<string | null>(null)
   const [inspections, setInspections] = useState<Inspection[]>([])
+
+  // Création groupée : un même Type/Marque/Modèle/Coloris peut correspondre
+  // à plusieurs pièces physiques distinctes (N° fabricant différents) — un
+  // "+" ajoute un N° fabricant supplémentaire, l'enregistrement crée alors
+  // une fiche par numéro. Non utilisé en modification (un seul item à la fois).
+  const nextRowId = useRef(1)
+  const [serialRows, setSerialRows] = useState<SerialRow[]>([
+    { id: 0, value: prefillSerial ?? '', scanning: false, error: null },
+  ])
 
   useEffect(() => {
     if (!id) return
@@ -107,6 +122,16 @@ export default function ItemForm() {
     setForm((f) => ({ ...f, [key]: value }))
   }
 
+  // Après un enregistrement réussi, ajoute immédiatement les nouvelles
+  // valeurs (type/marque/modèle/coloris) aux suggestions : sans ça, créer un
+  // second item juste après ne proposait pas ce qui venait d'être saisi.
+  function rememberNewValues() {
+    if (form.type) setKnownTypes((prev) => [...new Set([...prev, form.type!])].sort())
+    if (form.brand) setKnownBrands((prev) => [...new Set([...prev, form.brand!])].sort())
+    if (form.model) setKnownModels((prev) => [...new Set([...prev, form.model!])].sort())
+    if (form.color) setKnownColors((prev) => [...new Set([...prev, form.color!])].sort())
+  }
+
   async function handleScanSerial(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     e.target.value = '' // permet de reprendre une photo du même nom ensuite
@@ -130,19 +155,70 @@ export default function ItemForm() {
     }
   }
 
+  function updateSerialRow(rowId: number, value: string) {
+    setSerialRows((rows) => rows.map((r) => (r.id === rowId ? { ...r, value } : r)))
+  }
+
+  function addSerialRow() {
+    setSerialRows((rows) => [
+      ...rows,
+      { id: nextRowId.current++, value: '', scanning: false, error: null },
+    ])
+  }
+
+  function removeSerialRow(rowId: number) {
+    setSerialRows((rows) => (rows.length > 1 ? rows.filter((r) => r.id !== rowId) : rows))
+  }
+
+  async function handleScanSerialRow(rowId: number, e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+
+    setSerialRows((rows) => rows.map((r) => (r.id === rowId ? { ...r, scanning: true, error: null } : r)))
+    try {
+      const { text, source } = await readSerialFromPhoto(file)
+      if (!text) {
+        setSerialRows((rows) =>
+          rows.map((r) =>
+            r.id === rowId
+              ? { ...r, error: "Aucun numéro n'a pu être lu sur cette photo — réessayez ou saisissez-le à la main." }
+              : r,
+          ),
+        )
+      } else {
+        const via = source === 'tesseract' ? 'lecture locale' : 'Groq (lecture locale peu fiable)'
+        setSerialRows((rows) =>
+          rows.map((r) =>
+            r.id === rowId
+              ? { ...r, value: text, error: `Lu (${via}) — vérifiez avant d'enregistrer.` }
+              : r,
+          ),
+        )
+      }
+    } catch (err) {
+      setSerialRows((rows) =>
+        rows.map((r) =>
+          r.id === rowId ? { ...r, error: err instanceof Error ? err.message : 'Erreur de lecture.' } : r,
+        ),
+      )
+    } finally {
+      setSerialRows((rows) => rows.map((r) => (r.id === rowId ? { ...r, scanning: false } : r)))
+    }
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     setSaving(true)
     setError(null)
 
-    const payload = {
+    const basePayload = {
       type: form.type,
       is_textile: form.is_textile ?? null,
       brand: form.brand || null,
       model: form.model || null,
       textile_length_m: form.textile_length_m || null,
       specifics: form.specifics || null,
-      manufacturer_serial: form.manufacturer_serial || null,
       manufacture_date: form.manufacture_date_unknown ? null : form.manufacture_date || null,
       manufacture_date_unknown: form.manufacture_date_unknown ?? false,
       decommission_date: form.decommission_date || null,
@@ -152,22 +228,43 @@ export default function ItemForm() {
       remarks: form.remarks || null,
     }
 
-    const result = isEditing
-      ? await supabase.from('items').update(payload).eq('id', id)
-      : await supabase.from('items').insert(payload).select('id').single()
-
-    setSaving(false)
-
-    if (result.error) {
-      setError(result.error.message)
+    if (isEditing) {
+      const { error } = await supabase
+        .from('items')
+        .update({ ...basePayload, manufacturer_serial: form.manufacturer_serial || null })
+        .eq('id', id)
+      setSaving(false)
+      if (error) {
+        setError(error.message)
+        return
+      }
+      navigate(`/materiel/${id}`)
       return
     }
 
-    if (isEditing) {
-      navigate(`/materiel/${id}`)
+    // Un ou plusieurs N° fabricant renseignés -> une fiche par numéro. Aucun
+    // numéro renseigné -> une seule fiche sans N° fabricant, comme avant.
+    const serials = serialRows.map((r) => r.value.trim()).filter(Boolean)
+    const rows: (typeof basePayload & { manufacturer_serial: string | null })[] =
+      serials.length > 0
+        ? serials.map((manufacturer_serial) => ({ ...basePayload, manufacturer_serial }))
+        : [{ ...basePayload, manufacturer_serial: null }]
+
+    const { data, error } = await supabase.from('items').insert(rows).select('id')
+    setSaving(false)
+
+    if (error) {
+      setError(error.message)
+      return
+    }
+
+    rememberNewValues()
+
+    const ids = (data as { id: number }[]).map((r) => r.id)
+    if (ids.length === 1) {
+      navigate(`/materiel/${ids[0]}`)
     } else {
-      const newId = (result.data as { id: number }).id
-      navigate(`/materiel/${newId}`)
+      navigate('/materiel')
     }
   }
 
@@ -236,7 +333,7 @@ export default function ItemForm() {
             <Field label="Statut">
               <select
                 required
-                value={form.status ?? 'en_service'}
+                value={form.status ?? 'stock'}
                 onChange={(e) => update('status', e.target.value as Item['status'])}
                 className="input"
               >
@@ -300,29 +397,95 @@ export default function ItemForm() {
               </datalist>
             </Field>
 
-            <div className="col-span-2">
-              <Field label="N° fabricant">
-                <div className="flex gap-2">
-                  <input
-                    value={form.manufacturer_serial ?? ''}
-                    onChange={(e) => update('manufacturer_serial', e.target.value)}
-                    className="input font-mono text-base tracking-wide"
-                  />
-                  <label className="shrink-0 rounded-md border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100 cursor-pointer">
-                    {scanning ? '…' : '📷 Scanner'}
+            {isEditing ? (
+              <div className="col-span-2">
+                <Field label="N° fabricant">
+                  <div className="flex gap-2">
                     <input
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      onChange={handleScanSerial}
-                      disabled={scanning}
-                      className="hidden"
+                      value={form.manufacturer_serial ?? ''}
+                      onChange={(e) => update('manufacturer_serial', e.target.value)}
+                      className="input font-mono text-base tracking-wide"
                     />
-                  </label>
-                </div>
-                {scanError && <p className="mt-1 text-xs text-amber-700">{scanError}</p>}
-              </Field>
-            </div>
+                    <label className="shrink-0 rounded-md border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100 cursor-pointer">
+                      {scanning ? '…' : '📷 Scanner'}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        onChange={handleScanSerial}
+                        disabled={scanning}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                  {scanError && <p className="mt-1 text-xs text-amber-700">{scanError}</p>}
+                </Field>
+              </div>
+            ) : (
+              <div className="col-span-2">
+                <Field
+                  label={
+                    serialRows.length > 1
+                      ? `N° fabricant — ${serialRows.length} items seront créés`
+                      : 'N° fabricant'
+                  }
+                >
+                  <div className="space-y-2">
+                    {serialRows.map((row, i) => (
+                      <div key={row.id}>
+                        <div className="flex gap-2">
+                          <input
+                            value={row.value}
+                            onChange={(e) => updateSerialRow(row.id, e.target.value)}
+                            placeholder={serialRows.length > 1 ? `Item ${i + 1}` : undefined}
+                            className="input font-mono text-base tracking-wide"
+                          />
+                          <label className="shrink-0 rounded-md border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100 cursor-pointer">
+                            {row.scanning ? '…' : '📷'}
+                            <input
+                              type="file"
+                              accept="image/*"
+                              capture="environment"
+                              onChange={(e) => handleScanSerialRow(row.id, e)}
+                              disabled={row.scanning}
+                              className="hidden"
+                            />
+                          </label>
+                          {serialRows.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => removeSerialRow(row.id)}
+                              className="shrink-0 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-500 hover:bg-slate-100"
+                              aria-label="Retirer ce numéro"
+                            >
+                              ×
+                            </button>
+                          )}
+                          {i === serialRows.length - 1 && (
+                            <button
+                              type="button"
+                              onClick={addSerialRow}
+                              className="shrink-0 rounded-md border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100"
+                              aria-label="Ajouter un autre N° fabricant"
+                              title="Créer un autre item identique avec un N° fabricant différent"
+                            >
+                              +
+                            </button>
+                          )}
+                        </div>
+                        {row.error && <p className="mt-1 text-xs text-amber-700">{row.error}</p>}
+                      </div>
+                    ))}
+                  </div>
+                  {serialRows.length > 1 && (
+                    <p className="mt-1 text-xs text-slate-500">
+                      Un item identique (même type/marque/modèle/coloris) sera créé pour chaque N°
+                      fabricant renseigné ci-dessus.
+                    </p>
+                  )}
+                </Field>
+              </div>
+            )}
 
             <Field label="Date de fabrication">
               <input
