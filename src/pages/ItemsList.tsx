@@ -37,6 +37,20 @@ export default function ItemsList() {
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [bulkStatus, setBulkStatus] = useState<string>(ITEM_STATUSES[0].value)
   const [bulkSaving, setBulkSaving] = useState(false)
+  const [knownTypes, setKnownTypes] = useState<string[]>([...ITEM_TYPES])
+
+  // Types prédéfinis + ceux déjà utilisés (au cas où un type personnalisé
+  // aurait été créé depuis le formulaire d'ajout).
+  useEffect(() => {
+    supabase
+      .from('items')
+      .select('type')
+      .not('type', 'is', null)
+      .then(({ data }) => {
+        const unique = [...new Set([...ITEM_TYPES, ...(data ?? []).map((r) => r.type as string)])].sort()
+        setKnownTypes(unique)
+      })
+  }, [])
 
   // Anti-rebond : on ne relance la recherche que 300ms après la dernière
   // frappe, pour éviter une requête (et un scintillement de la table) à
@@ -212,7 +226,7 @@ export default function ItemsList() {
           className="rounded-md border border-slate-300 px-3 py-2 text-sm"
         >
           <option value="">Tous les types</option>
-          {ITEM_TYPES.map((t) => (
+          {knownTypes.map((t) => (
             <option key={t} value={t}>
               {t}
             </option>

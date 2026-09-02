@@ -26,6 +26,7 @@ export default function ItemForm() {
   const [loading, setLoading] = useState(isEditing)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [knownTypes, setKnownTypes] = useState<string[]>([...ITEM_TYPES])
   const [knownBrands, setKnownBrands] = useState<string[]>([])
   const [knownModels, setKnownModels] = useState<string[]>([])
   const [scanning, setScanning] = useState(false)
@@ -51,6 +52,19 @@ export default function ItemForm() {
       .order('inspected_on', { ascending: false })
       .then(({ data }) => setInspections((data as Inspection[]) ?? []))
   }, [id])
+
+  // Suggestions "type" : les types prédéfinis + ceux déjà utilisés dans
+  // l'inventaire (au cas où un type personnalisé aurait été créé).
+  useEffect(() => {
+    supabase
+      .from('items')
+      .select('type')
+      .not('type', 'is', null)
+      .then(({ data }) => {
+        const unique = [...new Set([...ITEM_TYPES, ...(data ?? []).map((r) => r.type as string)])].sort()
+        setKnownTypes(unique)
+      })
+  }, [])
 
   // Suggestions "marque" : toutes les marques déjà utilisées, tous types confondus.
   useEffect(() => {
@@ -179,18 +193,18 @@ export default function ItemForm() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <Field label="Type">
-              <select
+              <input
                 required
+                list="known-types"
                 value={form.type ?? ''}
                 onChange={(e) => update('type', e.target.value)}
                 className="input"
-              >
-                {ITEM_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
+              />
+              <datalist id="known-types">
+                {knownTypes.map((t) => (
+                  <option key={t} value={t} />
                 ))}
-              </select>
+              </datalist>
             </Field>
 
             <Field label="Statut">
