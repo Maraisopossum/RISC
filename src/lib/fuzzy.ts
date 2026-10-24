@@ -21,7 +21,7 @@ export function levenshtein(a: string, b: string): number {
 }
 
 // Score de similarité entre 0 (rien à voir) et 1 (identique), insensible à
-// la casse et aux confusions fréquentes de lecture OCR sur métal (0/O, 1/I).
+// la casse et aux confusions fréquentes de saisie ou de lecture (0/O, 1/I).
 export function similarity(a: string, b: string): number {
   const normalize = (s: string) =>
     s.toUpperCase().replace(/O/g, '0').replace(/[IL]/g, '1')

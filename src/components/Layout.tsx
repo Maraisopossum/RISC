@@ -80,7 +80,7 @@ export default function Layout() {
                   `${navItem} ${isActive ? navItemActive : navItemInactive}`
                 }
               >
-                📷 Scanner
+                🔎 Scanner
               </NavLink>
             )}
             {isAdmin && (

@@ -80,7 +80,7 @@ export default function Dashboard() {
             to="/scanner"
             className="inline-flex items-center gap-2 rounded-md bg-slate-900 text-white px-4 py-2.5 font-medium hover:bg-slate-800"
           >
-            📷 Scanner un numéro
+            🔎 Scanner un numéro
           </Link>
         )}
       </div>

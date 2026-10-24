@@ -71,10 +71,11 @@ Un item "en service" est signalé si :
 - son âge dépasse 10 ans (date de fabrication connue), **ou**
 - son dernier contrôle SECT date de plus d'un an (ou n'existe pas)
 
-## Feuille de route
+## Scan
 
-- **Phase 1 (ce dépôt)** : CRUD + auth + import + alertes + export CSV
-- **Phase 2** : OCR (Groq, vision) pour les numéros de série gravés sans code
-  lisible + mode hors-ligne (PWA)
-- **Phase 3** : scan QR / codes-barres (étiquettes générées + lecture des
-  codes fabricant existants)
+Pas de lecture par photo/caméra : le décodage d'un DataMatrix gravé sur métal
+depuis un navigateur s'est révélé trop peu fiable. On utilise une **douchette
+USB** (qui se comporte comme un clavier : elle tape le code dans le champ
+actif puis envoie Entrée) ou la saisie à la main. La page *Scanner* reconnaît un
+N° fabricant (correspondance exacte ou numéros proches) ou une étiquette QR
+RISC (URL de la fiche, imprimable depuis chaque fiche).

@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { readSerialFromPhoto } from '../lib/ocr'
 import { ITEM_TYPES, ITEM_STATUSES, type Item, type Inspection } from '../lib/types'
 import RequireAdmin from '../components/RequireAdmin'
 
@@ -13,8 +12,6 @@ const emptyItem: Partial<Item> = {
 interface SerialRow {
   id: number
   value: string
-  scanning: boolean
-  error: string | null
 }
 
 export default function ItemForm() {
@@ -36,8 +33,6 @@ export default function ItemForm() {
   const [knownBrands, setKnownBrands] = useState<string[]>([])
   const [knownModels, setKnownModels] = useState<string[]>([])
   const [knownColors, setKnownColors] = useState<string[]>([])
-  const [scanning, setScanning] = useState(false)
-  const [scanError, setScanError] = useState<string | null>(null)
   const [inspections, setInspections] = useState<Inspection[]>([])
 
   // Création groupée : un même Type/Marque/Modèle/Coloris peut correspondre
@@ -45,9 +40,7 @@ export default function ItemForm() {
   // "+" ajoute un N° fabricant supplémentaire, l'enregistrement crée alors
   // une fiche par numéro. Non utilisé en modification (un seul item à la fois).
   const nextRowId = useRef(1)
-  const [serialRows, setSerialRows] = useState<SerialRow[]>([
-    { id: 0, value: prefillSerial ?? '', scanning: false, error: null },
-  ])
+  const [serialRows, setSerialRows] = useState<SerialRow[]>([{ id: 0, value: prefillSerial ?? '' }])
   const [showCountPicker, setShowCountPicker] = useState(false)
   const [countInput, setCountInput] = useState('')
 
@@ -134,29 +127,6 @@ export default function ItemForm() {
     if (form.color) setKnownColors((prev) => [...new Set([...prev, form.color!])].sort())
   }
 
-  async function handleScanSerial(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    e.target.value = '' // permet de reprendre une photo du même nom ensuite
-    if (!file) return
-
-    setScanning(true)
-    setScanError(null)
-    try {
-      const { text, source } = await readSerialFromPhoto(file)
-      if (!text) {
-        setScanError("Aucun numéro n'a pu être lu sur cette photo — réessayez ou saisissez-le à la main.")
-      } else {
-        update('manufacturer_serial', text)
-        const via = source === 'tesseract' ? 'lecture locale' : 'Groq (lecture locale peu fiable)'
-        setScanError(`Lu (${via}) : "${text}" — vérifiez avant d'enregistrer, la lecture sur métal gravé n'est pas garantie à 100 %.`)
-      }
-    } catch (err) {
-      setScanError(err instanceof Error ? err.message : 'Erreur de lecture.')
-    } finally {
-      setScanning(false)
-    }
-  }
-
   function updateSerialRow(rowId: number, value: string) {
     setSerialRows((rows) => rows.map((r) => (r.id === rowId ? { ...r, value } : r)))
   }
@@ -175,8 +145,6 @@ export default function ItemForm() {
         const extra = Array.from({ length: target - rows.length }, () => ({
           id: nextRowId.current++,
           value: '',
-          scanning: false,
-          error: null,
         }))
         return [...rows, ...extra]
       }
@@ -187,43 +155,6 @@ export default function ItemForm() {
       }
       return rows
     })
-  }
-
-  async function handleScanSerialRow(rowId: number, e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    e.target.value = ''
-    if (!file) return
-
-    setSerialRows((rows) => rows.map((r) => (r.id === rowId ? { ...r, scanning: true, error: null } : r)))
-    try {
-      const { text, source } = await readSerialFromPhoto(file)
-      if (!text) {
-        setSerialRows((rows) =>
-          rows.map((r) =>
-            r.id === rowId
-              ? { ...r, error: "Aucun numéro n'a pu être lu sur cette photo — réessayez ou saisissez-le à la main." }
-              : r,
-          ),
-        )
-      } else {
-        const via = source === 'tesseract' ? 'lecture locale' : 'Groq (lecture locale peu fiable)'
-        setSerialRows((rows) =>
-          rows.map((r) =>
-            r.id === rowId
-              ? { ...r, value: text, error: `Lu (${via}) — vérifiez avant d'enregistrer.` }
-              : r,
-          ),
-        )
-      }
-    } catch (err) {
-      setSerialRows((rows) =>
-        rows.map((r) =>
-          r.id === rowId ? { ...r, error: err instanceof Error ? err.message : 'Erreur de lecture.' } : r,
-        ),
-      )
-    } finally {
-      setSerialRows((rows) => rows.map((r) => (r.id === rowId ? { ...r, scanning: false } : r)))
-    }
   }
 
   async function handleSubmit(e: FormEvent) {
@@ -419,25 +350,11 @@ export default function ItemForm() {
             {isEditing ? (
               <div className="col-span-2">
                 <Field label="N° fabricant">
-                  <div className="flex gap-2">
-                    <input
-                      value={form.manufacturer_serial ?? ''}
-                      onChange={(e) => update('manufacturer_serial', e.target.value)}
-                      className="input font-mono text-base tracking-wide"
-                    />
-                    <label className="shrink-0 rounded-md border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100 cursor-pointer">
-                      {scanning ? '…' : '📷 Scanner'}
-                      <input
-                        type="file"
-                        accept="image/*"
-                        capture="environment"
-                        onChange={handleScanSerial}
-                        disabled={scanning}
-                        className="hidden"
-                      />
-                    </label>
-                  </div>
-                  {scanError && <p className="mt-1 text-xs text-amber-700">{scanError}</p>}
+                  <input
+                    value={form.manufacturer_serial ?? ''}
+                    onChange={(e) => update('manufacturer_serial', e.target.value)}
+                    className="input font-mono text-base tracking-wide"
+                  />
                 </Field>
               </div>
             ) : (
@@ -459,17 +376,6 @@ export default function ItemForm() {
                             placeholder={serialRows.length > 1 ? `Item ${i + 1}` : undefined}
                             className="input font-mono text-base tracking-wide"
                           />
-                          <label className="shrink-0 rounded-md border border-slate-300 px-3 py-2 text-sm hover:bg-slate-100 cursor-pointer">
-                            {row.scanning ? '…' : '📷'}
-                            <input
-                              type="file"
-                              accept="image/*"
-                              capture="environment"
-                              onChange={(e) => handleScanSerialRow(row.id, e)}
-                              disabled={row.scanning}
-                              className="hidden"
-                            />
-                          </label>
                           {serialRows.length > 1 && (
                             <button
                               type="button"
@@ -481,7 +387,6 @@ export default function ItemForm() {
                             </button>
                           )}
                         </div>
-                        {row.error && <p className="mt-1 text-xs text-amber-700">{row.error}</p>}
                       </div>
                     ))}
                   </div>

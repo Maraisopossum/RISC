@@ -1,7 +1,6 @@
-import { lazy, Suspense, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { readSerialFromPhoto, type OcrSource } from '../lib/ocr'
 import { similarity } from '../lib/fuzzy'
 import { parseItemIdFromScan } from '../lib/qr'
 import { fetchAllRows } from '../lib/fetchAll'
@@ -9,52 +8,47 @@ import { ITEM_STATUSES, type Item } from '../lib/types'
 import RequireInspector from '../components/RequireInspector'
 import { useAuth } from '../auth/AuthContext'
 
-// html5-qrcode (~400 Ko) n'est chargé que si on ouvre vraiment le scanner,
-// pas sur les autres pages de l'appli.
-const CodeScanner = lazy(() => import('../components/CodeScanner'))
-
 interface Match extends Item {
   score: number
 }
 
-type Mode = 'code' | 'photo' | 'manual'
-type Source = OcrSource | 'code' | 'manual'
-
 const MIN_SCORE = 0.4 // en dessous, la suggestion n'a plus de sens
 
+// Une douchette USB se comporte comme un clavier : elle "tape" le code lu
+// dans le champ actif puis envoie Entrée, ce qui lance la recherche. Le champ
+// reste donc simplement un champ texte, utilisable aussi à la main.
 export default function ScanLookup() {
   const navigate = useNavigate()
   const { isAdmin } = useAuth()
-  const [mode, setMode] = useState<Mode>('code')
-  const [scanning, setScanning] = useState(false)
-  const [scannedText, setScannedText] = useState<string | null>(null)
-  const [scanSource, setScanSource] = useState<Source | null>(null)
+  const [input, setInput] = useState('')
+  const [searching, setSearching] = useState(false)
+  const [searchedText, setSearchedText] = useState<string | null>(null)
   const [matches, setMatches] = useState<Match[]>([])
   const [error, setError] = useState<string | null>(null)
-  const [manualInput, setManualInput] = useState('')
-  const [correctedText, setCorrectedText] = useState('')
 
-  async function lookupSerial(text: string, source: Source) {
-    // Recherche exacte directement côté serveur : fiable quel que soit le
-    // nombre d'items (l'API plafonne les réponses à 1000 lignes par défaut,
-    // et on a 4000+ N° fabricant renseignés — un simple "select *" côté
-    // client ratait des correspondances qui existaient pourtant bien).
+  async function lookup(text: string) {
+    // Étiquette QR RISC (URL de la fiche) : on ouvre directement la fiche.
+    const ownItemId = parseItemIdFromScan(text)
+    if (ownItemId) {
+      navigate(`/materiel/${ownItemId}`)
+      return
+    }
+
+    // Recherche exacte côté serveur : l'API plafonne les réponses à 1000
+    // lignes par défaut, un "select *" côté client raterait des items.
     const { data: exactMatches, error: exactErr } = await supabase
       .from('items')
-      .select('*')
-      .ilike('manufacturer_serial', text.trim())
+      .select('id')
+      .ilike('manufacturer_serial', text)
     if (exactErr) {
       setError(exactErr.message)
       return
     }
     if (exactMatches && exactMatches.length > 0) {
-      // Correspondance exacte : pas besoin de choisir, on ouvre directement la fiche.
-      navigate(`/materiel/${(exactMatches[0] as Item).id}`)
+      navigate(`/materiel/${exactMatches[0].id}`)
       return
     }
 
-    // Sinon, recherche approchée sur l'ensemble des items (par lots de 1000
-    // pour la même raison — un seul select() serait tronqué).
     let all: Item[]
     try {
       all = await fetchAllRows<Item>(() =>
@@ -65,96 +59,27 @@ export default function ScanLookup() {
       return
     }
 
-    setScannedText(text)
-    setCorrectedText(text)
-    setScanSource(source)
-
-    const scored = all
-      .map((item) => ({ ...item, score: similarity(text, item.manufacturer_serial!) }))
-      .filter((item) => item.score >= MIN_SCORE)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 8)
-
-    setMatches(scored)
+    setSearchedText(text)
+    setMatches(
+      all
+        .map((item) => ({ ...item, score: similarity(text, item.manufacturer_serial!) }))
+        .filter((item) => item.score >= MIN_SCORE)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 8),
+    )
   }
 
-  function resetResult() {
-    setError(null)
-    setMatches([])
-    setScannedText(null)
-    setScanSource(null)
-    setCorrectedText('')
-  }
-
-  async function handleCodeResult(text: string) {
-    resetResult()
-    const ownItemId = parseItemIdFromScan(text)
-    if (ownItemId) {
-      navigate(`/materiel/${ownItemId}`)
-      return
-    }
-    // Code fabricant (datamatrix, code-barres...) sans lien vers notre appli :
-    // on le traite comme un numéro de série à rapprocher de l'existant.
-    await lookupSerial(text, 'code')
-  }
-
-  async function runOcr(file: File) {
-    setScanning(true)
-    resetResult()
-    try {
-      const { text, source } = await readSerialFromPhoto(file)
-      if (!text) {
-        setError("Aucun numéro n'a pu être lu sur cette photo. Réessayez avec une photo plus nette et cadrée sur le numéro.")
-        return
-      }
-      await lookupSerial(text, source!)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erreur de lecture.')
-    } finally {
-      setScanning(false)
-    }
-  }
-
-  async function handlePhotoScan(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    e.target.value = ''
-    if (!file) return
-    await runOcr(file)
-  }
-
-  // Le décodeur QR/code-barres échoue parfois sur un DataMatrix dense
-  // (gravé sur métal) même avec une bonne photo — on retente alors la même
-  // image via l'OCR plutôt que de laisser l'utilisateur reprendre une photo
-  // à la main dans un autre onglet.
-  async function handleCodeFallback(file: File) {
-    await runOcr(file)
-  }
-
-  async function handleManualSearch(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault()
-    const text = manualInput.trim()
+    const text = input.trim()
     if (!text) return
-    resetResult()
-    await lookupSerial(text, 'manual')
-  }
 
-  async function handleCorrectionSearch(e: FormEvent) {
-    e.preventDefault()
-    const text = correctedText.trim()
-    if (!text || !scanSource) return
+    setSearching(true)
+    setError(null)
+    setSearchedText(null)
     setMatches([])
-    await lookupSerial(text, scanSource)
-  }
-
-  function handleCreateNew() {
-    navigate('/materiel/nouveau', { state: { manufacturer_serial: correctedText } })
-  }
-
-  const sourceLabel: Record<Source, string> = {
-    code: 'code-barres / QR',
-    tesseract: 'lecture locale',
-    groq: 'Groq',
-    manual: 'saisi manuellement',
+    await lookup(text)
+    setSearching(false)
   }
 
   return (
@@ -163,86 +88,29 @@ export default function ScanLookup() {
         <div>
           <h1 className="text-2xl font-semibold text-slate-900">Scanner un item</h1>
           <p className="text-slate-500">
-            Scannez un QR/code-barres (étiquette RISC ou code fabricant), photographiez un numéro
-            gravé sans code lisible, ou saisissez-le directement si vous le connaissez déjà —
-            pour retrouver une fiche existante ou en créer une nouvelle.
+            Scannez le code avec la douchette (le curseur est déjà dans le champ), ou tapez le N°
+            fabricant, pour retrouver une fiche existante
+            {isAdmin ? ' ou en créer une nouvelle' : ''}.
           </p>
         </div>
 
-        <div className="flex gap-1 rounded-md border border-slate-300 p-1 w-fit">
+        <form onSubmit={handleSubmit} className="flex gap-2">
+          <input
+            type="text"
+            autoFocus
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="N° fabricant (ex: 22F0414A69072)"
+            className="input font-mono text-base"
+          />
           <button
-            onClick={() => {
-              setMode('code')
-              resetResult()
-            }}
-            className={`rounded px-3 py-1.5 text-sm font-medium ${mode === 'code' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+            type="submit"
+            disabled={searching}
+            className="shrink-0 rounded-md bg-slate-900 text-white px-4 py-2 font-medium hover:bg-slate-800 disabled:opacity-50"
           >
-            Code-barres / QR
+            {searching ? 'Recherche…' : 'Rechercher'}
           </button>
-          <button
-            onClick={() => {
-              setMode('photo')
-              resetResult()
-            }}
-            className={`rounded px-3 py-1.5 text-sm font-medium ${mode === 'photo' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
-          >
-            Numéro gravé (photo)
-          </button>
-          <button
-            onClick={() => {
-              setMode('manual')
-              resetResult()
-            }}
-            className={`rounded px-3 py-1.5 text-sm font-medium ${mode === 'manual' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
-          >
-            Saisir le numéro
-          </button>
-        </div>
-
-        {mode === 'manual' ? (
-          <form onSubmit={handleManualSearch} className="flex gap-2">
-            <input
-              type="text"
-              autoFocus
-              placeholder="N° fabricant (ex: 22F0414A69072)"
-              value={manualInput}
-              onChange={(e) => setManualInput(e.target.value)}
-              className="input font-mono"
-            />
-            <button
-              type="submit"
-              className="shrink-0 rounded-md bg-slate-900 text-white px-4 py-2 font-medium hover:bg-slate-800"
-            >
-              Rechercher
-            </button>
-          </form>
-        ) : mode === 'code' ? (
-          <Suspense fallback={<p className="text-sm text-slate-500">Chargement du scanner…</p>}>
-            <CodeScanner
-              onResult={handleCodeResult}
-              onFallback={handleCodeFallback}
-              onCancel={() => setMode('photo')}
-            />
-          </Suspense>
-        ) : (
-          <label className="inline-flex items-center gap-2 rounded-md bg-slate-900 text-white px-4 py-2.5 font-medium hover:bg-slate-800 cursor-pointer">
-            {scanning ? 'Lecture en cours…' : '📷 Prendre une photo'}
-            <input
-              type="file"
-              accept="image/*"
-              capture="environment"
-              onChange={handlePhotoScan}
-              disabled={scanning}
-              className="hidden"
-            />
-          </label>
-        )}
-
-        {scanning && mode === 'code' && (
-          <p className="text-sm text-slate-500">
-            Code non lu, nouvelle tentative en lecture de texte sur la même photo…
-          </p>
-        )}
+        </form>
 
         {error && (
           <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
@@ -250,36 +118,14 @@ export default function ScanLookup() {
           </p>
         )}
 
-        {scannedText && scanSource && (
+        {searchedText !== null && (
           <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-4">
-            <div>
-              <p className="text-sm text-slate-500 mb-1">
-                Numéro lu ({sourceLabel[scanSource]})
-                {scanSource !== 'code' && scanSource !== 'manual' && (
-                  <> — la lecture sur métal gravé n'est pas garantie à 100 %, corrigez si besoin :</>
-                )}
-              </p>
-              <form onSubmit={handleCorrectionSearch} className="flex gap-2">
-                <input
-                  type="text"
-                  value={correctedText}
-                  onChange={(e) => setCorrectedText(e.target.value)}
-                  className="input font-mono text-base"
-                />
-                <button
-                  type="submit"
-                  className="shrink-0 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium hover:bg-slate-100"
-                >
-                  Rechercher
-                </button>
-              </form>
-            </div>
+            <p className="text-sm text-slate-500">
+              Aucune fiche avec le N° <span className="font-mono text-slate-900">{searchedText}</span>
+              {matches.length > 0 ? ' — numéros proches :' : '.'}
+            </p>
 
-            {matches.length === 0 ? (
-              <p className="text-slate-500">
-                Aucun item existant ne s'en approche. Il s'agit probablement d'un nouvel article.
-              </p>
-            ) : (
+            {matches.length > 0 && (
               <ul className="space-y-2">
                 {matches.map((m) => (
                   <li
@@ -311,14 +157,16 @@ export default function ScanLookup() {
 
             {isAdmin ? (
               <button
-                onClick={handleCreateNew}
+                onClick={() =>
+                  navigate('/materiel/nouveau', { state: { manufacturer_serial: searchedText } })
+                }
                 className="w-full rounded-md border border-dashed border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
               >
-                + Aucun ne correspond — créer un nouvel item avec ce numéro
+                + Créer un nouvel item avec ce numéro
               </button>
             ) : (
               <p className="text-sm text-slate-500">
-                Aucun ne correspond ? Un compte admin doit créer la fiche pour ce numéro.
+                Un compte admin doit créer la fiche pour ce numéro.
               </p>
             )}
           </div>
