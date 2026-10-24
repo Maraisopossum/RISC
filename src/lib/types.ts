@@ -47,8 +47,34 @@ export interface Item {
   updated_at: string
 }
 
+export const INSPECTION_RESULTS = [
+  { value: 'OK', label: 'OK' },
+  { value: 'A_REPARER', label: 'À réparer' },
+  { value: 'A_DETRUIRE', label: 'À détruire' },
+] as const
+
+// Les anciens résultats (ex: "NON CONFORME") restent affichés tels quels.
+export function inspectionResultLabel(result: string | null | undefined): string {
+  if (!result) return '—'
+  return INSPECTION_RESULTS.find((r) => r.value === result)?.label ?? result
+}
+
+export function inspectionResultClass(result: string | null | undefined): string {
+  if (result === 'OK') return 'bg-green-100 text-green-800'
+  if (result === 'A_REPARER') return 'bg-amber-100 text-amber-800'
+  if (result === 'A_DETRUIRE') return 'bg-red-100 text-red-800'
+  return 'bg-slate-100 text-slate-600'
+}
+
+export function todayLocal(): string {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
 export interface ItemWithAlerts extends Item {
   last_inspection_on: string | null
+  last_inspection_result: string | null
   alert_age: boolean
   alert_control: boolean
 }

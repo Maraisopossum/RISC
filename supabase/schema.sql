@@ -149,7 +149,7 @@ create table if not exists inspections (
   id bigint generated always as identity primary key,
   item_id bigint not null references items(id) on delete cascade,
   inspected_on date not null,
-  result text,             -- ex: "OK", "NON CONTRÔLÉ", etc.
+  result text,             -- OK, A_REPARER, A_DETRUIRE (+ anciennes valeurs libres)
   notes text,
   created_by uuid references profiles(id),
   created_at timestamptz not null default now()
@@ -191,10 +191,13 @@ select
   (
     i.status = 'en_service'
     and (li.last_inspection_on is null or li.last_inspection_on <= (current_date - interval '1 year'))
-  ) as alert_control
+  ) as alert_control,
+  li.last_inspection_result
 from items i
 left join lateral (
-  select max(inspected_on) as last_inspection_on
+  select inspected_on as last_inspection_on, result as last_inspection_result
   from inspections
   where inspections.item_id = i.id
+  order by inspected_on desc, id desc
+  limit 1
 ) li on true;

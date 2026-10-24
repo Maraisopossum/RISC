@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { ITEM_TYPES, ITEM_STATUSES, type Item, type Inspection } from '../lib/types'
+import {
+  ITEM_TYPES,
+  ITEM_STATUSES,
+  inspectionResultLabel,
+  type Item,
+  type Inspection,
+} from '../lib/types'
 import RequireAdmin from '../components/RequireAdmin'
 
 const emptyItem: Partial<Item> = {
@@ -241,7 +247,7 @@ export default function ItemForm() {
               <ul className="space-y-1 text-sm">
                 {inspections.map((insp) => (
                   <li key={insp.id} className="text-slate-700">
-                    <span className="font-mono">{insp.inspected_on}</span> — {insp.result}
+                    <span className="font-mono">{insp.inspected_on}</span> — {inspectionResultLabel(insp.result)}
                     {insp.notes && <span className="text-slate-400"> ({insp.notes})</span>}
                   </li>
                 ))}

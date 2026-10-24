@@ -3,11 +3,18 @@ import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { downloadCsv } from '../lib/csv'
 import { useAuth } from '../auth/AuthContext'
-import { ITEM_TYPES, ITEM_STATUSES, type ItemWithAlerts } from '../lib/types'
+import {
+  ITEM_TYPES,
+  ITEM_STATUSES,
+  INSPECTION_RESULTS,
+  inspectionResultLabel,
+  inspectionResultClass,
+  type ItemWithAlerts,
+} from '../lib/types'
 
 const PAGE_SIZE = 50
 
-type SortColumn = 'id' | 'type' | 'brand' | 'model' | 'color' | 'manufacturer_serial' | 'manufacture_date' | 'status' | 'last_inspection_on'
+type SortColumn = 'id' | 'type' | 'brand' | 'model' | 'color' | 'manufacturer_serial' | 'manufacture_date' | 'status' | 'last_inspection_on' | 'last_inspection_result'
 
 const COLUMNS: { key: SortColumn; label: string }[] = [
   { key: 'id', label: 'ID' },
@@ -19,6 +26,7 @@ const COLUMNS: { key: SortColumn; label: string }[] = [
   { key: 'manufacture_date', label: 'Date de fabrication' },
   { key: 'status', label: 'Statut' },
   { key: 'last_inspection_on', label: 'Dernier contrôle' },
+  { key: 'last_inspection_result', label: 'Résultat' },
 ]
 
 export default function ItemsList() {
@@ -33,6 +41,7 @@ export default function ItemsList() {
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [resultFilter, setResultFilter] = useState('')
   const [sortColumn, setSortColumn] = useState<SortColumn>('id')
   const [sortAsc, setSortAsc] = useState(false)
   const [selected, setSelected] = useState<Set<number>>(new Set())
@@ -66,6 +75,8 @@ export default function ItemsList() {
     let q: any = query
     if (typeFilter) q = q.eq('type', typeFilter)
     if (statusFilter) q = q.eq('status', statusFilter)
+    if (resultFilter === 'NONE') q = q.is('last_inspection_on', null)
+    else if (resultFilter) q = q.eq('last_inspection_result', resultFilter)
     if (search.trim()) {
       const term = search.trim()
       q = q.or(
@@ -98,19 +109,19 @@ export default function ItemsList() {
         setLoading(false)
       })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, typeFilter, statusFilter, page, sortColumn, sortAsc])
+  }, [search, typeFilter, statusFilter, resultFilter, page, sortColumn, sortAsc])
 
   // Revenir à la première page quand un filtre ou un tri change
   useEffect(() => {
     setPage(0)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, typeFilter, statusFilter, sortColumn, sortAsc])
+  }, [search, typeFilter, statusFilter, resultFilter, sortColumn, sortAsc])
 
   // La sélection ne doit pas survivre à un changement de page/filtre : les
   // lignes affichées changent, une sélection "invisible" prêterait à confusion.
   useEffect(() => {
     setSelected(new Set())
-  }, [search, typeFilter, statusFilter, page, sortColumn, sortAsc])
+  }, [search, typeFilter, statusFilter, resultFilter, page, sortColumn, sortAsc])
 
   function toggleSelected(id: number) {
     setSelected((prev) => {
@@ -195,6 +206,9 @@ export default function ItemsList() {
         'Date sortie de service': item.decommission_date,
         Statut: item.status,
         'Dernier contrôle': item.last_inspection_on,
+        'Résultat dernier contrôle': item.last_inspection_result
+          ? inspectionResultLabel(item.last_inspection_result)
+          : null,
         Remarques: item.remarks,
       })),
     )
@@ -245,6 +259,19 @@ export default function ItemsList() {
               {s.label}
             </option>
           ))}
+        </select>
+        <select
+          value={resultFilter}
+          onChange={(e) => setResultFilter(e.target.value)}
+          className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+        >
+          <option value="">Tous les résultats de contrôle</option>
+          {INSPECTION_RESULTS.map((r) => (
+            <option key={r.value} value={r.value}>
+              Dernier contrôle : {r.label}
+            </option>
+          ))}
+          <option value="NONE">Jamais contrôlé</option>
         </select>
       </div>
 
@@ -353,6 +380,17 @@ export default function ItemsList() {
                     {ITEM_STATUSES.find((s) => s.value === item.status)?.label}
                   </td>
                   <td className="px-4 py-2">{item.last_inspection_on ?? 'Jamais contrôlé'}</td>
+                  <td className="px-4 py-2">
+                    {item.last_inspection_result ? (
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-xs ${inspectionResultClass(item.last_inspection_result)}`}
+                      >
+                        {inspectionResultLabel(item.last_inspection_result)}
+                      </span>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
                   {isAdmin && (
                     <td className="px-4 py-2">
                       <Link

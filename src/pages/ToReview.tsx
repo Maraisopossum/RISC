@@ -1,18 +1,30 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { fetchAllRows } from '../lib/fetchAll'
 import { ITEM_STATUSES, type Item } from '../lib/types'
 import RequireAdmin from '../components/RequireAdmin'
 
+type ReasonKind = 'date' | 'declasse' | 'doublon'
+
+const REASON_KINDS: { value: ReasonKind; label: string }[] = [
+  { value: 'date', label: 'Date de fabrication inconnue' },
+  { value: 'declasse', label: 'Déclassé sans date de sortie' },
+  { value: 'doublon', label: 'N° fabricant dupliqué' },
+]
+
 interface FlaggedItem extends Item {
-  reasons: string[]
+  reasons: { kind: ReasonKind; text: string }[]
 }
 
 export default function ToReview() {
   const [items, setItems] = useState<FlaggedItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+  const [typeFilter, setTypeFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
+  const [reasonFilter, setReasonFilter] = useState('')
 
   useEffect(() => {
     async function load() {
@@ -31,20 +43,20 @@ export default function ToReview() {
 
       const flagged = new Map<number, FlaggedItem>()
 
-      function flag(item: Item, reason: string) {
+      function flag(item: Item, kind: ReasonKind, text: string) {
         const existing = flagged.get(item.id)
         if (existing) {
-          existing.reasons.push(reason)
+          existing.reasons.push({ kind, text })
         } else {
-          flagged.set(item.id, { ...item, reasons: [reason] })
+          flagged.set(item.id, { ...item, reasons: [{ kind, text }] })
         }
       }
 
       for (const item of (unknownDateRes.data as Item[]) ?? []) {
-        flag(item, 'Date de fabrication inconnue')
+        flag(item, 'date', 'Date de fabrication inconnue')
       }
       for (const item of (declasseNoDateRes.data as Item[]) ?? []) {
-        flag(item, 'Déclassé sans date de sortie de service')
+        flag(item, 'declasse', 'Déclassé sans date de sortie de service')
       }
 
       // N° fabricant identique utilisé par plusieurs items actifs : probable
@@ -59,7 +71,7 @@ export default function ToReview() {
       for (const group of bySerial.values()) {
         if (group.length > 1) {
           for (const item of group) {
-            flag(item, `N° fabricant dupliqué (${group.length} items : ${group.map((i) => `#${i.id}`).join(', ')})`)
+            flag(item, 'doublon', `N° fabricant dupliqué (${group.length} items : ${group.map((i) => `#${i.id}`).join(', ')})`)
           }
         }
       }
@@ -69,6 +81,25 @@ export default function ToReview() {
     }
     load()
   }, [])
+
+  const types = useMemo(() => [...new Set(items.map((i) => i.type))].sort(), [items])
+
+  const filtered = useMemo(() => {
+    const term = search.trim().toLowerCase()
+    return items.filter((i) => {
+      if (typeFilter && i.type !== typeFilter) return false
+      if (statusFilter && i.status !== statusFilter) return false
+      if (reasonFilter && !i.reasons.some((r) => r.kind === reasonFilter)) return false
+      if (term) {
+        const haystack = [i.id, i.brand, i.model, i.manufacturer_serial, i.specifics]
+          .filter((v) => v !== null && v !== undefined)
+          .join(' ')
+          .toLowerCase()
+        if (!haystack.includes(term)) return false
+      }
+      return true
+    })
+  }, [items, search, typeFilter, statusFilter, reasonFilter])
 
   if (loading) return <p className="text-slate-500">Chargement…</p>
   if (error) return <p className="text-red-600">Erreur : {error}</p>
@@ -80,12 +111,63 @@ export default function ToReview() {
           <h1 className="text-2xl font-semibold text-slate-900">À vérifier</h1>
           <p className="text-slate-500">
             Incohérences de données détectées automatiquement, à corriger au cas par cas —{' '}
-            {items.length} item{items.length > 1 ? 's' : ''}.
+            {filtered.length === items.length
+              ? `${items.length} item${items.length > 1 ? 's' : ''}`
+              : `${filtered.length} sur ${items.length} items`}
+            .
           </p>
         </div>
 
-        {items.length === 0 ? (
-          <p className="text-slate-500">Aucune incohérence détectée.</p>
+        <div className="flex flex-wrap gap-3">
+          <input
+            type="text"
+            placeholder="Rechercher (ID, marque, modèle, N° fabricant…)"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="flex-1 min-w-[220px] rounded-md border border-slate-300 px-3 py-2 text-sm"
+          />
+          <select
+            value={reasonFilter}
+            onChange={(e) => setReasonFilter(e.target.value)}
+            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+          >
+            <option value="">Tous les motifs</option>
+            {REASON_KINDS.map((r) => (
+              <option key={r.value} value={r.value}>
+                {r.label}
+              </option>
+            ))}
+          </select>
+          <select
+            value={typeFilter}
+            onChange={(e) => setTypeFilter(e.target.value)}
+            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+          >
+            <option value="">Tous les types</option>
+            {types.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+          >
+            <option value="">Tous les statuts</option>
+            {ITEM_STATUSES.map((s) => (
+              <option key={s.value} value={s.value}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {filtered.length === 0 ? (
+          <p className="text-slate-500">
+            {items.length === 0 ? 'Aucune incohérence détectée.' : 'Aucun résultat pour ces filtres.'}
+          </p>
         ) : (
           <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
             <table className="min-w-full text-sm">
@@ -100,7 +182,7 @@ export default function ToReview() {
                 </tr>
               </thead>
               <tbody>
-                {items.map((item) => (
+                {filtered.map((item) => (
                   <tr key={item.id} className="border-t border-slate-100 hover:bg-slate-50">
                     <td className="px-4 py-2 font-medium text-slate-900">#{item.id}</td>
                     <td className="px-4 py-2">{item.type}</td>
@@ -112,8 +194,8 @@ export default function ToReview() {
                     </td>
                     <td className="px-4 py-2 space-y-0.5">
                       {item.reasons.map((r) => (
-                        <p key={r} className="text-amber-700 text-xs">
-                          {r}
+                        <p key={r.text} className="text-amber-700 text-xs">
+                          {r.text}
                         </p>
                       ))}
                     </td>
