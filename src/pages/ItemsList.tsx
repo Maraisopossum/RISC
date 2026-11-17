@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { downloadCsv } from '../lib/csv'
+import { downloadXlsx } from '../lib/xlsxExport'
 import { useAuth } from '../auth/AuthContext'
 import { downloadBackup } from '../lib/backup'
 import { exportYearControls, markYearValidated, countYearUnvalidated } from '../lib/exportControls'
@@ -324,8 +324,9 @@ export default function ItemsList() {
       if (!data || data.length < batchSize) break
     }
 
-    downloadCsv(
-      `inventaire-risc-${new Date().toISOString().slice(0, 10)}.csv`,
+    await downloadXlsx(
+      `inventaire-risc-${new Date().toISOString().slice(0, 10)}.xlsx`,
+      'Inventaire',
       all.map((item) => ({
         'ID RISC': item.id,
         Type: item.type,
@@ -358,7 +359,7 @@ export default function ItemsList() {
           onClick={handleExport}
           className="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100"
         >
-          Exporter en CSV ({total})
+          Exporter la liste en Excel ({total})
         </button>
       </div>
 
