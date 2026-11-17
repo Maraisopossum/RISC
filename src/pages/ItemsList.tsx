@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { downloadCsv } from '../lib/csv'
 import { useAuth } from '../auth/AuthContext'
+import { downloadBackup } from '../lib/backup'
 import { exportYearControls, markYearValidated, countYearUnvalidated } from '../lib/exportControls'
 import {
   ITEM_TYPES,
@@ -21,8 +22,7 @@ type SortColumn = 'id' | 'type' | 'brand' | 'model' | 'color' | 'manufacturer_se
 const COLUMNS: { key: SortColumn; label: string }[] = [
   { key: 'id', label: 'ID' },
   { key: 'type', label: 'Type' },
-  { key: 'brand', label: 'Marque' },
-  { key: 'model', label: 'Modèle' },
+  { key: 'brand', label: 'Marque / Modèle' },
   { key: 'color', label: 'Coloris' },
   { key: 'manufacturer_serial', label: 'N° fabricant' },
   { key: 'manufacture_date', label: 'Date de fabrication' },
@@ -249,6 +249,18 @@ export default function ItemsList() {
       return next
     })
     setReloadKey((k) => k + 1)
+  }
+
+  async function handleBackup() {
+    setYearBusy(true)
+    setYearMessage(null)
+    try {
+      const r = await downloadBackup()
+      setYearMessage(`${r.filename} téléchargé (${r.items} items, ${r.inspections} contrôles).`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erreur inconnue.')
+    }
+    setYearBusy(false)
   }
 
   async function handleExportYear() {
@@ -497,15 +509,24 @@ export default function ItemsList() {
             Marquer comme validés par l'organisme
           </button>
         )}
-        {yearMessage && <span className="text-slate-500">{yearMessage}</span>}
+        {isAdmin && (
+          <button
+            onClick={handleBackup}
+            disabled={yearBusy}
+            className="rounded-md border border-slate-300 px-3 py-1.5 hover:bg-slate-100 disabled:opacity-50 sm:ml-auto"
+          >
+            Sauvegarde datée (Excel)
+          </button>
+        )}
+        {yearMessage && <span className="w-full text-slate-500">{yearMessage}</span>}
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-        <table className="min-w-full text-sm">
+        <table className="w-full text-sm">
           <thead className="bg-slate-50 text-left text-slate-500">
             <tr>
               {isAdmin && (
-                <th className="px-4 py-2 w-8">
+                <th className="px-2 py-2 w-8">
                   <input
                     type="checkbox"
                     checked={allOnPageSelected}
@@ -514,7 +535,7 @@ export default function ItemsList() {
                 </th>
               )}
               {COLUMNS.map((col) => (
-                <th key={col.key} className="px-4 py-2">
+                <th key={col.key} className="px-2 py-2">
                   <button
                     onClick={() => handleSort(col.key)}
                     className="flex items-center gap-1 font-medium hover:text-slate-900"
@@ -524,7 +545,7 @@ export default function ItemsList() {
                   </button>
                 </th>
               ))}
-              {isAdmin && <th className="px-4 py-2" />}
+              {isAdmin && <th className="px-2 py-2" />}
             </tr>
           </thead>
           <tbody className={loading ? 'opacity-50 transition-opacity' : 'transition-opacity'}>
@@ -544,7 +565,7 @@ export default function ItemsList() {
               items.map((item) => (
                 <tr key={item.id} className="border-t border-slate-100 hover:bg-slate-50">
                   {isAdmin && (
-                    <td className="px-4 py-2">
+                    <td className="px-2 py-2">
                       <input
                         type="checkbox"
                         checked={selected.has(item.id)}
@@ -552,26 +573,28 @@ export default function ItemsList() {
                       />
                     </td>
                   )}
-                  <td className="px-4 py-2">
+                  <td className="px-2 py-2">
                     <Link to={`/materiel/${item.id}`} className="font-medium text-slate-900 hover:underline">
                       #{item.id}
                     </Link>
                   </td>
-                  <td className="px-4 py-2">{item.type}</td>
-                  <td className="px-4 py-2">{item.brand ?? '—'}</td>
-                  <td className="px-4 py-2">{item.model ?? '—'}</td>
-                  <td className="px-4 py-2">{item.color ?? '—'}</td>
-                  <td className="px-4 py-2">{item.manufacturer_serial ?? '—'}</td>
-                  <td className="px-4 py-2">
+                  <td className="px-2 py-2">{item.type}</td>
+                  <td className="px-2 py-2">
+                    <span className="font-medium text-slate-900">{item.brand ?? '—'}</span>
+                    {item.model && <span className="block text-xs text-slate-500">{item.model}</span>}
+                  </td>
+                  <td className="px-2 py-2">{item.color ?? '—'}</td>
+                  <td className="px-2 py-2">{item.manufacturer_serial ?? '—'}</td>
+                  <td className="px-2 py-2 whitespace-nowrap">
                     {item.manufacture_date_unknown
                       ? 'Inconnue'
                       : (item.manufacture_date ?? '—')}
                   </td>
-                  <td className="px-4 py-2">
+                  <td className="px-2 py-2">
                     {ITEM_STATUSES.find((s) => s.value === item.status)?.label}
                   </td>
-                  <td className="px-4 py-2">{item.last_inspection_on ?? 'Jamais contrôlé'}</td>
-                  <td className="px-4 py-2">
+                  <td className="px-2 py-2 whitespace-nowrap">{item.last_inspection_on ?? 'Jamais contrôlé'}</td>
+                  <td className="px-2 py-2">
                     {item.last_inspection_result ? (
                       <span
                         className={`rounded-full px-2 py-0.5 text-xs ${inspectionResultClass(item.last_inspection_result)}`}
@@ -583,12 +606,14 @@ export default function ItemsList() {
                     )}
                   </td>
                   {isAdmin && (
-                    <td className="px-4 py-2 whitespace-nowrap">
+                    <td className="px-2 py-2 whitespace-nowrap">
                       <Link
                         to={`/materiel/${item.id}/modifier`}
+                        title={`Modifier #${item.id}`}
+                        aria-label={`Modifier #${item.id}`}
                         className="rounded-md border border-slate-300 px-2 py-1 text-xs hover:bg-slate-100"
                       >
-                        Modifier
+                        ✏️
                       </Link>
                       <button
                         type="button"
