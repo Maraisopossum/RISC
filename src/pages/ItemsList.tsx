@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { downloadXlsx } from '../lib/xlsxExport'
 import { useAuth } from '../auth/AuthContext'
 import { downloadBackup } from '../lib/backup'
 import { exportYearControls, markYearValidated, countYearUnvalidated } from '../lib/exportControls'
@@ -306,49 +305,6 @@ export default function ItemsList() {
     }
   }
 
-  async function handleExport() {
-    // Exporte tout le résultat filtré (pas seulement la page affichée), par lots de 1000.
-    setError(null)
-
-    const all: ItemWithAlerts[] = []
-    const batchSize = 1000
-    for (let from = 0; ; from += batchSize) {
-      const { data, error } = await applyFilters(supabase.from('items_with_alerts').select('*'))
-        .order(sortColumn, { ascending: sortAsc, nullsFirst: sortAsc })
-        .range(from, from + batchSize - 1)
-      if (error) {
-        setError(error.message)
-        return
-      }
-      all.push(...((data as ItemWithAlerts[]) ?? []))
-      if (!data || data.length < batchSize) break
-    }
-
-    await downloadXlsx(
-      `inventaire-risc-${new Date().toISOString().slice(0, 10)}.xlsx`,
-      'Inventaire',
-      all.map((item) => ({
-        'ID RISC': item.id,
-        Type: item.type,
-        Marque: item.brand,
-        Modèle: item.model,
-        Coloris: item.color,
-        'Longueur textile (m)': item.textile_length_m,
-        'N° fabricant': item.manufacturer_serial,
-        'Date de fabrication': item.manufacture_date_unknown
-          ? 'inconnue'
-          : item.manufacture_date,
-        'Date sortie de service': item.decommission_date,
-        Statut: item.status,
-        'Dernier contrôle': item.last_inspection_on,
-        'Résultat dernier contrôle': item.last_inspection_result
-          ? inspectionResultLabel(item.last_inspection_result)
-          : null,
-        Remarques: item.remarks,
-      })),
-    )
-  }
-
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
   return (
@@ -356,10 +312,11 @@ export default function ItemsList() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl font-semibold text-slate-900">Matériel</h1>
         <button
-          onClick={handleExport}
-          className="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100"
+          onClick={handleBackup}
+          disabled={yearBusy}
+          className="rounded-md border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100 disabled:opacity-50"
         >
-          Exporter la liste en Excel ({total})
+          Exporter tout en Excel
         </button>
       </div>
 
@@ -508,15 +465,6 @@ export default function ItemsList() {
             className="rounded-md border border-slate-300 px-3 py-1.5 hover:bg-slate-100 disabled:opacity-50"
           >
             Marquer comme validés par l'organisme
-          </button>
-        )}
-        {isAdmin && (
-          <button
-            onClick={handleBackup}
-            disabled={yearBusy}
-            className="rounded-md border border-slate-300 px-3 py-1.5 hover:bg-slate-100 disabled:opacity-50 sm:ml-auto"
-          >
-            Sauvegarde datée (Excel)
           </button>
         )}
         {yearMessage && <span className="w-full text-slate-500">{yearMessage}</span>}
