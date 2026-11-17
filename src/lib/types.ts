@@ -75,6 +75,7 @@ export function todayLocal(): string {
 export interface ItemWithAlerts extends Item {
   last_inspection_on: string | null
   last_inspection_result: string | null
+  last_inspection_validated_on: string | null
   alert_age: boolean
   alert_control: boolean
 }
@@ -85,6 +86,7 @@ export interface Inspection {
   inspected_on: string
   result: string | null
   notes: string | null
+  validated_on: string | null
   created_by: string | null
   created_at: string
 }

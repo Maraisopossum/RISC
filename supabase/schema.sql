@@ -151,6 +151,7 @@ create table if not exists inspections (
   inspected_on date not null,
   result text,             -- OK, A_REPARER, A_DETRUIRE (+ anciennes valeurs libres)
   notes text,
+  validated_on date,       -- date de validation par l'organisme de contrôle
   created_by uuid references profiles(id),
   created_at timestamptz not null default now()
 );
@@ -192,10 +193,14 @@ select
     i.status = 'en_service'
     and (li.last_inspection_on is null or li.last_inspection_on <= (current_date - interval '1 year'))
   ) as alert_control,
-  li.last_inspection_result
+  li.last_inspection_result,
+  li.last_inspection_validated_on
 from items i
 left join lateral (
-  select inspected_on as last_inspection_on, result as last_inspection_result
+  select
+    inspected_on as last_inspection_on,
+    result as last_inspection_result,
+    validated_on as last_inspection_validated_on
   from inspections
   where inspections.item_id = i.id
   order by inspected_on desc, id desc

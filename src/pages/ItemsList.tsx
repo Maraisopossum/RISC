@@ -3,12 +3,14 @@ import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { downloadCsv } from '../lib/csv'
 import { useAuth } from '../auth/AuthContext'
+import { exportYearControls, markYearValidated, countYearUnvalidated } from '../lib/exportControls'
 import {
   ITEM_TYPES,
   ITEM_STATUSES,
   INSPECTION_RESULTS,
   inspectionResultLabel,
   inspectionResultClass,
+  todayLocal,
   type ItemWithAlerts,
 } from '../lib/types'
 
@@ -42,11 +44,17 @@ export default function ItemsList() {
   const [typeFilter, setTypeFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [resultFilter, setResultFilter] = useState('')
+  const [validationFilter, setValidationFilter] = useState('')
+  const [reloadKey, setReloadKey] = useState(0)
   const [sortColumn, setSortColumn] = useState<SortColumn>('id')
   const [sortAsc, setSortAsc] = useState(false)
   const [selected, setSelected] = useState<Set<number>>(new Set())
-  const [bulkStatus, setBulkStatus] = useState<string>(ITEM_STATUSES[0].value)
+  const [bulkStatus, setBulkStatus] = useState<string>('declasse')
   const [bulkSaving, setBulkSaving] = useState(false)
+  const currentYear = new Date().getFullYear()
+  const [exportYear, setExportYear] = useState(currentYear)
+  const [yearBusy, setYearBusy] = useState(false)
+  const [yearMessage, setYearMessage] = useState<string | null>(null)
   const [knownTypes, setKnownTypes] = useState<string[]>([...ITEM_TYPES])
 
   // Types prédéfinis + ceux déjà utilisés (au cas où un type personnalisé
@@ -77,6 +85,8 @@ export default function ItemsList() {
     if (statusFilter) q = q.eq('status', statusFilter)
     if (resultFilter === 'NONE') q = q.is('last_inspection_on', null)
     else if (resultFilter) q = q.eq('last_inspection_result', resultFilter)
+    if (validationFilter === 'yes') q = q.not('last_inspection_validated_on', 'is', null)
+    else if (validationFilter === 'no') q = q.not('last_inspection_on', 'is', null).is('last_inspection_validated_on', null)
     if (search.trim()) {
       const term = search.trim()
       q = q.or(
@@ -109,19 +119,17 @@ export default function ItemsList() {
         setLoading(false)
       })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, typeFilter, statusFilter, resultFilter, page, sortColumn, sortAsc])
+  }, [search, typeFilter, statusFilter, resultFilter, validationFilter, page, sortColumn, sortAsc, reloadKey])
 
   // Revenir à la première page quand un filtre ou un tri change
   useEffect(() => {
     setPage(0)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, typeFilter, statusFilter, resultFilter, sortColumn, sortAsc])
+  }, [search, typeFilter, statusFilter, resultFilter, validationFilter, sortColumn, sortAsc])
 
-  // La sélection ne doit pas survivre à un changement de page/filtre : les
-  // lignes affichées changent, une sélection "invisible" prêterait à confusion.
-  useEffect(() => {
-    setSelected(new Set())
-  }, [search, typeFilter, statusFilter, resultFilter, page, sortColumn, sortAsc])
+  // La sélection survit aux changements de page, de recherche et de filtre :
+  // on peut ainsi cocher des lignes au fil de plusieurs recherches, puis les
+  // traiter d'un coup.
 
   function toggleSelected(id: number) {
     setSelected((prev) => {
@@ -132,35 +140,104 @@ export default function ItemsList() {
     })
   }
 
+  const allOnPageSelected = items.length > 0 && items.every((i) => selected.has(i.id))
+
   function toggleSelectAllOnPage() {
-    setSelected((prev) =>
-      prev.size === items.length ? new Set() : new Set(items.map((i) => i.id)),
-    )
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (allOnPageSelected) items.forEach((i) => next.delete(i.id))
+      else items.forEach((i) => next.add(i.id))
+      return next
+    })
+  }
+
+  // Ajoute à la sélection tous les résultats de la recherche/des filtres en
+  // cours (pas seulement la page affichée).
+  async function selectAllResults() {
+    setError(null)
+    const ids: number[] = []
+    const batchSize = 1000
+    for (let from = 0; ; from += batchSize) {
+      const { data, error } = await applyFilters(supabase.from('items_with_alerts').select('id'))
+        .order('id', { ascending: true })
+        .range(from, from + batchSize - 1)
+      if (error) {
+        setError(error.message)
+        return
+      }
+      ids.push(...((data as { id: number }[]) ?? []).map((r) => r.id))
+      if (!data || data.length < batchSize) break
+    }
+    setSelected((prev) => new Set([...prev, ...ids]))
   }
 
   async function handleBulkStatusChange() {
     if (selected.size === 0) return
+    const label = ITEM_STATUSES.find((s) => s.value === bulkStatus)?.label ?? bulkStatus
+    if (!confirm(`Passer ${selected.size} item(s) au statut « ${label} » ?`)) return
     setBulkSaving(true)
     setError(null)
-    const { error } = await supabase
-      .from('items')
-      .update({ status: bulkStatus })
-      .in('id', [...selected])
-    setBulkSaving(false)
-    if (error) {
-      setError(error.message)
-      return
+    const ids = [...selected]
+    // Par lots : une liste d'ID trop longue dépasserait la taille d'URL admise.
+    for (let i = 0; i < ids.length; i += 200) {
+      const chunk = ids.slice(i, i + 200)
+      const { error } = await supabase.from('items').update({ status: bulkStatus }).in('id', chunk)
+      if (error) {
+        setError(error.message)
+        setBulkSaving(false)
+        return
+      }
+      if (bulkStatus === 'declasse') {
+        // Date de sortie de service = aujourd'hui, sans écraser une date déjà saisie.
+        const { error: dateError } = await supabase
+          .from('items')
+          .update({ decommission_date: todayLocal() })
+          .in('id', chunk)
+          .is('decommission_date', null)
+        if (dateError) {
+          setError(dateError.message)
+          setBulkSaving(false)
+          return
+        }
+      }
     }
+    setBulkSaving(false)
     setSelected(new Set())
-    setLoading(true)
-    applyFilters(supabase.from('items_with_alerts').select('*', { count: 'exact' }))
-      .order(sortColumn, { ascending: sortAsc, nullsFirst: sortAsc })
-      .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
-      .then(({ data, count }: { data: ItemWithAlerts[] | null; count: number | null }) => {
-        setItems(data ?? [])
-        setTotal(count ?? 0)
-        setLoading(false)
-      })
+    setReloadKey((k) => k + 1)
+  }
+
+  async function handleExportYear() {
+    setYearBusy(true)
+    setYearMessage(null)
+    try {
+      const n = await exportYearControls(exportYear)
+      setYearMessage(n === 0 ? `Aucun contrôle enregistré en ${exportYear}.` : `${n} contrôles exportés.`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erreur inconnue.')
+    }
+    setYearBusy(false)
+  }
+
+  async function handleMarkYearValidated() {
+    setYearBusy(true)
+    setYearMessage(null)
+    try {
+      const pending = await countYearUnvalidated(exportYear)
+      if (pending === 0) {
+        setYearMessage(`Tous les contrôles de ${exportYear} sont déjà marqués comme validés.`)
+      } else if (
+        confirm(
+          `Marquer les ${pending} contrôles de ${exportYear} non validés comme validés par l'organisme (à la date d'aujourd'hui) ?`,
+        )
+      ) {
+        const n = await markYearValidated(exportYear, todayLocal())
+        setYearMessage(`${n} contrôles marqués comme validés.`)
+        setReloadKey((k) => k + 1)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erreur inconnue.')
+    }
+    setYearBusy(false)
   }
 
   function handleSort(col: SortColumn) {
@@ -273,41 +350,94 @@ export default function ItemsList() {
           ))}
           <option value="NONE">Jamais contrôlé</option>
         </select>
+        <select
+          value={validationFilter}
+          onChange={(e) => setValidationFilter(e.target.value)}
+          className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+        >
+          <option value="">Validation par l'organisme : tous</option>
+          <option value="yes">Dernier contrôle validé</option>
+          <option value="no">Dernier contrôle non validé</option>
+        </select>
       </div>
 
       {error && <p className="text-red-600 text-sm">{error}</p>}
 
-      {isAdmin && selected.size > 0 && (
-        <div className="flex items-center gap-3 rounded-lg border border-slate-300 bg-slate-100 px-4 py-2 text-sm">
-          <span className="font-medium text-slate-700">{selected.size} sélectionné(s)</span>
-          <span className="text-slate-400">·</span>
-          <span>Passer au statut</span>
-          <select
-            value={bulkStatus}
-            onChange={(e) => setBulkStatus(e.target.value)}
-            className="rounded-md border border-slate-300 px-2 py-1"
-          >
-            {ITEM_STATUSES.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-          <button
-            onClick={handleBulkStatusChange}
-            disabled={bulkSaving}
-            className="rounded-md bg-slate-900 text-white px-3 py-1.5 font-medium hover:bg-slate-800 disabled:opacity-50"
-          >
-            {bulkSaving ? 'Application…' : 'Appliquer'}
-          </button>
-          <button
-            onClick={() => setSelected(new Set())}
-            className="text-slate-500 hover:underline ml-auto"
-          >
-            Annuler la sélection
-          </button>
+      {isAdmin && (
+        <div className="rounded-lg border border-slate-300 bg-slate-100 px-4 py-2 text-sm space-y-2">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="font-medium text-slate-700">
+              {selected.size} sélectionné{selected.size > 1 ? 's' : ''}
+            </span>
+            <button onClick={selectAllResults} className="text-slate-600 hover:underline">
+              Ajouter les {total} résultats
+            </button>
+            {selected.size > 0 && (
+              <button onClick={() => setSelected(new Set())} className="text-slate-500 hover:underline">
+                Vider la sélection
+              </button>
+            )}
+            <span className="text-xs text-slate-400">
+              La sélection est conservée quand on change de recherche, de filtre ou de page.
+            </span>
+          </div>
+          {selected.size > 0 && (
+            <div className="flex flex-wrap items-center gap-3">
+              <span>Passer au statut</span>
+              <select
+                value={bulkStatus}
+                onChange={(e) => setBulkStatus(e.target.value)}
+                className="rounded-md border border-slate-300 px-2 py-1"
+              >
+                {ITEM_STATUSES.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={handleBulkStatusChange}
+                disabled={bulkSaving}
+                className="rounded-md bg-slate-900 text-white px-3 py-1.5 font-medium hover:bg-slate-800 disabled:opacity-50"
+              >
+                {bulkSaving ? 'Application…' : 'Appliquer'}
+              </button>
+            </div>
+          )}
         </div>
       )}
+
+      <div className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm">
+        <span className="font-medium text-slate-700">Contrôles de l'année</span>
+        <select
+          value={exportYear}
+          onChange={(e) => setExportYear(Number(e.target.value))}
+          className="rounded-md border border-slate-300 px-2 py-1"
+        >
+          {Array.from({ length: 6 }, (_, k) => currentYear - k).map((y) => (
+            <option key={y} value={y}>
+              {y}
+            </option>
+          ))}
+        </select>
+        <button
+          onClick={handleExportYear}
+          disabled={yearBusy}
+          className="rounded-md border border-slate-300 px-3 py-1.5 hover:bg-slate-100 disabled:opacity-50"
+        >
+          Exporter en Excel
+        </button>
+        {isAdmin && (
+          <button
+            onClick={handleMarkYearValidated}
+            disabled={yearBusy}
+            className="rounded-md border border-slate-300 px-3 py-1.5 hover:bg-slate-100 disabled:opacity-50"
+          >
+            Marquer comme validés par l'organisme
+          </button>
+        )}
+        {yearMessage && <span className="text-slate-500">{yearMessage}</span>}
+      </div>
 
       <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
         <table className="min-w-full text-sm">
@@ -317,7 +447,7 @@ export default function ItemsList() {
                 <th className="px-4 py-2 w-8">
                   <input
                     type="checkbox"
-                    checked={items.length > 0 && selected.size === items.length}
+                    checked={allOnPageSelected}
                     onChange={toggleSelectAllOnPage}
                   />
                 </th>

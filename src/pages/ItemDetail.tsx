@@ -149,6 +149,18 @@ export default function ItemDetail() {
     loadAll()
   }
 
+  async function handleToggleValidated(insp: Inspection) {
+    const { error } = await supabase
+      .from('inspections')
+      .update({ validated_on: insp.validated_on ? null : todayLocal() })
+      .eq('id', insp.id)
+    if (error) {
+      setError(error.message)
+      return
+    }
+    loadAll()
+  }
+
   async function handleDeleteInspection(insp: Inspection) {
     if (!confirm(`Supprimer le contrôle du ${insp.inspected_on} ?`)) return
     const { error } = await supabase.from('inspections').delete().eq('id', insp.id)
@@ -296,10 +308,22 @@ export default function ItemDetail() {
                         {inspectionResultLabel(insp.result)}
                       </span>
                     </p>
+                    {insp.validated_on && (
+                      <p className="text-xs text-green-700">Validé par l'organisme le {insp.validated_on}</p>
+                    )}
                     {insp.notes && <p className="text-sm text-slate-500">{insp.notes}</p>}
                   </div>
                   {isAdmin && !offlineSince && (
                     <div className="flex gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleValidated(insp)}
+                        title={insp.validated_on ? "Retirer la validation de l'organisme" : "Marquer validé par l'organisme"}
+                        aria-label={insp.validated_on ? "Retirer la validation de l'organisme" : "Marquer validé par l'organisme"}
+                        className={`rounded-md border px-2 py-1 text-sm hover:bg-slate-100 ${insp.validated_on ? 'border-green-300 text-green-700' : 'border-slate-300 text-slate-400'}`}
+                      >
+                        ✔
+                      </button>
                       <button
                         type="button"
                         onClick={() => startEdit(insp)}
