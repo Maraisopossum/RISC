@@ -45,6 +45,7 @@ export default function ItemsList() {
   const [statusFilter, setStatusFilter] = useState('')
   const [resultFilter, setResultFilter] = useState('')
   const [validationFilter, setValidationFilter] = useState('')
+  const [yearFilter, setYearFilter] = useState('')
   const [reloadKey, setReloadKey] = useState(0)
   const [sortColumn, setSortColumn] = useState<SortColumn>('id')
   const [sortAsc, setSortAsc] = useState(false)
@@ -85,6 +86,9 @@ export default function ItemsList() {
     if (statusFilter) q = q.eq('status', statusFilter)
     if (resultFilter === 'NONE') q = q.is('last_inspection_on', null)
     else if (resultFilter) q = q.eq('last_inspection_result', resultFilter)
+    const yearStart = `${new Date().getFullYear()}-01-01`
+    if (yearFilter === 'done') q = q.gte('last_inspection_on', yearStart)
+    else if (yearFilter === 'todo') q = q.or(`last_inspection_on.is.null,last_inspection_on.lt.${yearStart}`)
     if (validationFilter === 'yes') q = q.not('last_inspection_validated_on', 'is', null)
     else if (validationFilter === 'no') q = q.not('last_inspection_on', 'is', null).is('last_inspection_validated_on', null)
     if (search.trim()) {
@@ -119,13 +123,13 @@ export default function ItemsList() {
         setLoading(false)
       })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, typeFilter, statusFilter, resultFilter, validationFilter, page, sortColumn, sortAsc, reloadKey])
+  }, [search, typeFilter, statusFilter, resultFilter, validationFilter, yearFilter, page, sortColumn, sortAsc, reloadKey])
 
   // Revenir à la première page quand un filtre ou un tri change
   useEffect(() => {
     setPage(0)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, typeFilter, statusFilter, resultFilter, validationFilter, sortColumn, sortAsc])
+  }, [search, typeFilter, statusFilter, resultFilter, validationFilter, yearFilter, sortColumn, sortAsc])
 
   // La sélection survit aux changements de page, de recherche et de filtre :
   // on peut ainsi cocher des lignes au fil de plusieurs recherches, puis les
@@ -203,6 +207,47 @@ export default function ItemsList() {
     }
     setBulkSaving(false)
     setSelected(new Set())
+    setReloadKey((k) => k + 1)
+  }
+
+  async function handleBulkDelete() {
+    if (selected.size === 0) return
+    if (
+      !confirm(
+        `Supprimer DÉFINITIVEMENT ${selected.size} item(s) et tout leur historique de contrôles ? Cette action est irréversible.`,
+      )
+    )
+      return
+    setBulkSaving(true)
+    setError(null)
+    const ids = [...selected]
+    for (let i = 0; i < ids.length; i += 200) {
+      const { error } = await supabase.from('items').delete().in('id', ids.slice(i, i + 200))
+      if (error) {
+        setError(error.message)
+        setBulkSaving(false)
+        setReloadKey((k) => k + 1)
+        return
+      }
+    }
+    setBulkSaving(false)
+    setSelected(new Set())
+    setReloadKey((k) => k + 1)
+  }
+
+  async function handleDeleteOne(id: number) {
+    if (!confirm(`Supprimer définitivement l'item #${id} et son historique de contrôles ? Cette action est irréversible.`)) return
+    setError(null)
+    const { error } = await supabase.from('items').delete().eq('id', id)
+    if (error) {
+      setError(error.message)
+      return
+    }
+    setSelected((prev) => {
+      const next = new Set(prev)
+      next.delete(id)
+      return next
+    })
     setReloadKey((k) => k + 1)
   }
 
@@ -351,6 +396,15 @@ export default function ItemsList() {
           <option value="NONE">Jamais contrôlé</option>
         </select>
         <select
+          value={yearFilter}
+          onChange={(e) => setYearFilter(e.target.value)}
+          className="rounded-md border border-slate-300 px-3 py-2 text-sm"
+        >
+          <option value="">Contrôle {new Date().getFullYear()} : tous</option>
+          <option value="done">Contrôlé en {new Date().getFullYear()}</option>
+          <option value="todo">Pas encore contrôlé en {new Date().getFullYear()}</option>
+        </select>
+        <select
           value={validationFilter}
           onChange={(e) => setValidationFilter(e.target.value)}
           className="rounded-md border border-slate-300 px-3 py-2 text-sm"
@@ -401,6 +455,13 @@ export default function ItemsList() {
                 className="rounded-md bg-slate-900 text-white px-3 py-1.5 font-medium hover:bg-slate-800 disabled:opacity-50"
               >
                 {bulkSaving ? 'Application…' : 'Appliquer'}
+              </button>
+              <button
+                onClick={handleBulkDelete}
+                disabled={bulkSaving}
+                className="rounded-md border border-red-300 text-red-600 px-3 py-1.5 font-medium hover:bg-red-50 disabled:opacity-50 ml-auto"
+              >
+                Supprimer la sélection
               </button>
             </div>
           )}
@@ -522,13 +583,22 @@ export default function ItemsList() {
                     )}
                   </td>
                   {isAdmin && (
-                    <td className="px-4 py-2">
+                    <td className="px-4 py-2 whitespace-nowrap">
                       <Link
                         to={`/materiel/${item.id}/modifier`}
                         className="rounded-md border border-slate-300 px-2 py-1 text-xs hover:bg-slate-100"
                       >
                         Modifier
                       </Link>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteOne(item.id)}
+                        title={`Supprimer #${item.id}`}
+                        aria-label={`Supprimer #${item.id}`}
+                        className="ml-1 rounded-md border border-red-300 px-2 py-1 text-xs hover:bg-red-50"
+                      >
+                        🗑️
+                      </button>
                     </td>
                   )}
                 </tr>
